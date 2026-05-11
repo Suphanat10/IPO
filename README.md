@@ -6,7 +6,7 @@
 
 ---
 
-## 📸 Features
+##  Features
 
 - **FA Analysis** — กรอกชื่อที่ปรึกษาทางการเงิน (บุคคล / บริษัท) → ดึงสถิติย้อนหลัง (โอกาสปิดบวก, ผลตอบแทนเฉลี่ย, downside, sample size)
 - **Lead-Co Underwriter Analysis** — วิเคราะห์ผู้จัดจำหน่ายหลัก + ผู้ร่วมจำหน่าย พร้อม peer-matching
@@ -18,8 +18,7 @@
 
 ---
 
-## 🚀 Quick Start
-
+## Quick Start
 ```bash
 git clone https://github.com/Suphanat10/IPO.git
 cd IPO/ipo-ui
@@ -31,7 +30,7 @@ npm run dev
 
 ---
 
-## 📂 โครงสร้าง
+## โครงสร้าง
 
 ```
 IPO/
@@ -61,7 +60,7 @@ IPO/
 
 ---
 
-## 🔄 Pipeline การทำงาน
+## Pipeline การทำงาน
 
 ### Build-time
 
@@ -88,7 +87,7 @@ Output: `src/app/data/ipo.json` (~3.3 MB)
 ---
 
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 - **Framework** — Next.js 16 (App Router) + React 19
 - **UI** — Material-UI (MUI) v9
