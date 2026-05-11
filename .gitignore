@@ -1,0 +1,52 @@
+# Claude Code local config
+.claude/
+
+# Dependencies
+**/node_modules/
+**/.pnp
+**/.pnp.*
+
+# Next.js build output
+**/.next/
+**/out/
+**/build/
+
+# TypeScript build info
+**/*.tsbuildinfo
+**/next-env.d.ts
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Vercel
+.vercel
+
+# Coverage / cache
+**/coverage/
+**/.cache/
+
+# Test artifacts (UI regression, chrome profiles, screenshots)
+**/outputs/ui-regression-*/
+**/outputs/**/chrome-profile/
+**/test-results/
+**/playwright-report/
+
+# Python bytecode (in case scripts contain .py)
+__pycache__/
+*.pyc
