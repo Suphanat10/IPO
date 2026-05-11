@@ -99,22 +99,3 @@ Output: `src/app/data/ipo.json` (~3.3 MB)
 
 ---
 
-## 📊 Python ↔ TypeScript Parity
-
-โปรเจกต์นี้ replicate Python notebook ทุก quirk:
-
-| Python behavior | TS implementation |
-|---|---|
-| `existing_data.quantile(0.3333)` (literal) | ใช้ `0.3333` ไม่ใช่ `1/3` |
-| `pd.qcut` strict `<` boundary | `qcutTier` ใช้ `<` (not `<=`) |
-| Manual `classify_x(NaN)` → "high" (NaN comparisons return False) | NaN rows ตี → "high" tier |
-| `idxmax()` returns alphabetically first on ties | tie-break order: gain ก่อน gain_strong |
-| `cost_ratio_final` ไม่ contribute ใน score_total | excluded ใน `computeIpoScore` |
-
-ผลลัพธ์: Score และ per-factor display ตรงกับ notebook ทุกค่า ✓
-
----
-
-## 📝 License
-
-Private project — for educational and research purposes.
