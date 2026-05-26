@@ -17,11 +17,8 @@ import LabeledField from "../components/LabeledField";
 import ConclusionView from "../components/ConclusionView";
 import EntityDetailView from "../components/EntityDetailView";
 import ReferenceLink from "../components/ReferenceLink";
-import {
-  faCompanyOptions,
-  faPersonOptions,
-} from "../lib/mockData";
 import { useAnalysis } from "../lib/AnalysisContext";
+import { useDropdownOptions } from "../lib/useDropdownOptions";
 import { generateFAConclusion } from "../lib/ipoAnalytics";
 import { createFuzzyFilter } from "../lib/fuzzyMatch";
 
@@ -46,6 +43,7 @@ function Hint({ topic, keyword }: { topic: string; keyword: string }) {
 export default function FAAnalysis() {
   const { fa, setFA } = useAnalysis();
   const [tab, setTab] = React.useState(0);
+  const { faPersons: faPersonOptions, faCompanies: faCompanyOptions } = useDropdownOptions();
 
   const conclusion = React.useMemo(
     () => generateFAConclusion(fa.person, fa.company),

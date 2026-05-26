@@ -11,7 +11,7 @@ const theme = createTheme({
     error: { main: "#dc2626" },
     warning: { main: "#d97706" },
     background: {
-      default: "#fcfcfc",
+      default: "#f0f2f5",
       paper: "#ffffff",
     },
     divider: "#e2e8f0",
@@ -104,8 +104,13 @@ const theme = createTheme({
         },
         contained: {
           background: "linear-gradient(135deg, #0a1929 0%, #1e3a5c 100%)",
+          color: "#ffffff",
           "&:hover": {
             background: "linear-gradient(135deg, #06101c 0%, #1a2e47 100%)",
+            color: "#ffffff",
+          },
+          "&.Mui-disabled": {
+            color: "rgba(255, 255, 255, 0.6)",
           },
         },
         outlined: {
@@ -151,14 +156,24 @@ const theme = createTheme({
     },
     MuiChip: {
       styleOverrides: {
-        root: { 
+        root: {
           fontWeight: 600,
-          backgroundColor: "linear-gradient(135deg, #1e3a5c1a 0%, #38bdf81a 100%)",
-          color: "#0a1929",
-          border: "1px solid #1e3a5c33",
-        },
-        filled: {
-          backgroundColor: "linear-gradient(135deg, #1e3a5c1a 0%, #38bdf81a 100%)",
+          // Default (colorless) chip: soft light-blue, dark text
+          "&.MuiChip-filledDefault": {
+            backgroundColor: "rgba(30, 58, 92, 0.08)",
+            color: "#0a1929",
+            border: "1px solid #1e3a5c33",
+          },
+          "&.MuiChip-outlinedDefault": {
+            color: "#0a1929",
+            borderColor: "#1e3a5c55",
+          },
+          // Filled colored chips: ensure white text on dark backgrounds
+          "&.MuiChip-filledPrimary, &.MuiChip-filledError, &.MuiChip-filledSuccess, &.MuiChip-filledWarning, &.MuiChip-filledInfo": {
+            color: "#ffffff",
+            "& .MuiChip-icon": { color: "#ffffff" },
+            "& .MuiChip-deleteIcon": { color: "rgba(255,255,255,0.85)" },
+          },
         },
       },
     },

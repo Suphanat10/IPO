@@ -7,6 +7,11 @@ import AppShell from "./components/AppShell";
 export const metadata: Metadata = {
   title: "IPO Analysis — FA & Underwriter",
   description: "Thai IPO performance & advisor analysis dashboard",
+  icons: {
+    icon: "/logo.c3dc7eeab8aedb0021bc.png",
+    shortcut: "/logo.c3dc7eeab8aedb0021bc.png",
+    apple: "/logo.c3dc7eeab8aedb0021bc.png",
+  },
 };
 
 export default function RootLayout({

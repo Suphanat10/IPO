@@ -20,10 +20,11 @@ import MetricPill from "../components/MetricPill";
 import CollapseBlock from "../components/CollapseBlock";
 import ReferenceLink from "../components/ReferenceLink";
 import { useAnalysis } from "../lib/AnalysisContext";
+import { useDropdownOptions } from "../lib/useDropdownOptions";
 import {
-  coUnderwriterOptions,
+  coUnderwriterOptions as mockCoOptions,
   leadCoSummary,
-  leadUnderwriterOptions,
+  leadUnderwriterOptions as mockLeadOptions,
   leadUnderwritersSummary,
 } from "../lib/mockData";
 import type { LeadCoSummaryRow, SummaryRow } from "../lib/types";
@@ -99,6 +100,21 @@ export default function LeadCoAnalysis() {
   const { leadCo, setLeadCo } = useAnalysis();
   const [showDetail, setShowDetail] = React.useState(false);
   const [tab, setTab] = React.useState(0);
+  const dbOpts = useDropdownOptions();
+  const leadUnderwriterOptions = React.useMemo(
+    () =>
+      [...new Set([...mockLeadOptions, ...dbOpts.underwriters])].sort((a, b) =>
+        a.localeCompare(b, "th"),
+      ),
+    [dbOpts.underwriters],
+  );
+  const coUnderwriterOptions = React.useMemo(
+    () =>
+      [...new Set([...mockCoOptions, ...dbOpts.underwriters])].sort((a, b) =>
+        a.localeCompare(b, "th"),
+      ),
+    [dbOpts.underwriters],
+  );
 
   const lead = leadCo.lead;
   const co = leadCo.co;
