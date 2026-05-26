@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { toDateOnly } from "@/lib/date-format";
-import { requirePermission } from "@/lib/auth-guard";
 import { logImportEvent } from "@/lib/audit";
 import {
   COMPLETENESS_FIELDS,
@@ -70,14 +69,6 @@ function serializePreviewRow(row: Record<string, unknown>) {
 }
 
 export async function POST(req: Request) {
-  let session;
-  try {
-    session = await requirePermission(req, "ipos:write");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
-  }
-
   let body: {
     type: CsvType;
     rows: Record<string, string>[];
@@ -92,8 +83,8 @@ export async function POST(req: Request) {
 
   await logImportEvent({
     request: req,
-    actorUserId: session.userId,
-    actorEmail: session.email,
+    actorUserId: null,
+    actorEmail: "admin",
     action: "import_preview",
     csvType: type,
     diff: { row_count: rows?.length ?? 0 },

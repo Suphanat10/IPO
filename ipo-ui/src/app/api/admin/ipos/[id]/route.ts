@@ -2,7 +2,6 @@ import { query, buildInsert, buildUpdate, isDatabaseConfigured } from "@/lib/db"
 import { toDateOnly } from "@/lib/date-format";
 import { applyEffectiveIpoStatus, effectiveIpoStatus, syncMaturedIpoStatuses } from "@/lib/ipo-status";
 import { scheduleAutoBuild } from "@/lib/buildTrigger";
-import { requirePermission } from "@/lib/auth-guard";
 import {
   normalizeDateOnlyField,
   normalizeNumericFields,
@@ -86,13 +85,6 @@ export async function GET(
     );
   }
 
-  try {
-    await requirePermission(request, "ipos:read");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
-  }
-
   const { id } = await ctx.params;
   const numId = parsePositiveIdParam(id);
   if (numId == null) {
@@ -125,13 +117,6 @@ export async function PATCH(
       { error: "Database is not configured. Set DATABASE_URL in .env.local first." },
       { status: 503 },
     );
-  }
-
-  try {
-    await requirePermission(request, "ipos:write");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
   }
 
   try {
@@ -248,13 +233,6 @@ export async function DELETE(
       { error: "Database is not configured." },
       { status: 503 },
     );
-  }
-
-  try {
-    await requirePermission(request, "ipos:delete");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
   }
 
   const { id } = await ctx.params;

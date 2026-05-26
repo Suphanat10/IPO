@@ -2,7 +2,6 @@ import { query, buildInsertReturning, isDatabaseConfigured } from "@/lib/db";
 import { effectiveIpoStatus, syncMaturedIpoStatuses } from "@/lib/ipo-status";
 import { getIposList } from "@/lib/admin/queries";
 import { scheduleAutoBuild } from "@/lib/buildTrigger";
-import { requirePermission } from "@/lib/auth-guard";
 import {
   isInvalidNumericError,
   isUniqueConstraintError,
@@ -54,13 +53,6 @@ export async function GET(request: Request) {
   }
 
   try {
-    await requirePermission(request, "ipos:read");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
-  }
-
-  try {
     const { searchParams } = new URL(request.url);
     const limit = parseNumber(searchParams.get("limit")) ?? 100;
     const offset = parseNumber(searchParams.get("offset")) ?? 0;
@@ -96,13 +88,6 @@ export async function POST(request: Request) {
       { error: "Database is not configured. Set DATABASE_URL in .env.local first." },
       { status: 503 },
     );
-  }
-
-  try {
-    await requirePermission(request, "ipos:write");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
   }
 
   const contentType = request.headers.get("content-type") ?? "";

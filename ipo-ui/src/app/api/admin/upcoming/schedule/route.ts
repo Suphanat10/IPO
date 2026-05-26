@@ -1,5 +1,4 @@
 import { query, isDatabaseConfigured } from "@/lib/db";
-import { requireAdmin, requirePermission } from "@/lib/auth-guard";
 import { logScraperEvent } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -13,13 +12,7 @@ type ScheduleRow = {
   updated_at: string;
 };
 
-export async function GET(request: Request) {
-  try {
-    await requireAdmin(request);
-  } catch (response) {
-    return response as Response;
-  }
-
+export async function GET() {
   if (!isDatabaseConfigured()) {
     return Response.json({ error: "Database is not configured." }, { status: 503 });
   }
@@ -32,13 +25,6 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  let session;
-  try {
-    session = await requirePermission(request, "scraper:trigger");
-  } catch (response) {
-    return response as Response;
-  }
-
   if (!isDatabaseConfigured()) {
     return Response.json({ error: "Database is not configured." }, { status: 503 });
   }
@@ -87,7 +73,7 @@ export async function PUT(request: Request) {
   for (const slot of body.slots) {
     await query(
       "INSERT INTO scraper_schedule (hour, minute, enabled, updated_by, updated_at) VALUES ($1, $2, $3, $4, now())",
-      [slot.hour, slot.minute, slot.enabled, session.email],
+      [slot.hour, slot.minute, slot.enabled, "admin"],
     );
   }
 
@@ -97,8 +83,8 @@ export async function PUT(request: Request) {
 
   await logScraperEvent({
     request,
-    actorUserId: session.userId,
-    actorEmail: session.email,
+    actorUserId: null,
+    actorEmail: "admin",
     entity: "scraper_schedule",
     entityId: "scraper_schedule",
     action: "scraper_schedule_updated",

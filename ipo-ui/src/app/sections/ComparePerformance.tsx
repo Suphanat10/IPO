@@ -20,7 +20,6 @@ import {
 import CompareArrowsRoundedIcon from "@mui/icons-material/CompareArrowsRounded";
 import SectionCard from "../components/SectionCard";
 import LabeledField from "../components/LabeledField";
-import CollapseBlock from "../components/CollapseBlock";
 import ReferenceLink from "../components/ReferenceLink";
 import { useAnalysis } from "../lib/AnalysisContext";
 import { useDropdownOptions } from "../lib/useDropdownOptions";
@@ -85,18 +84,22 @@ export default function ComparePerformance() {
   const dbOpts = useDropdownOptions();
 
   const rows = CONFIG[type].rows;
+  const summaryNames = React.useMemo(
+    () => new Set(rows.map((r) => r.name)),
+    [rows],
+  );
   const options = React.useMemo(() => {
-    const fromSummary = rows.map((r) => r.name);
+    // Only include names that have summary stats — DB names without stats can't be compared
     const dbList =
       type === "FA Person"
         ? dbOpts.faPersons
         : type === "FA Company"
           ? dbOpts.faCompanies
           : dbOpts.underwriters;
-    return [...new Set([...fromSummary, ...dbList])].sort((a, b) =>
-      a.localeCompare(b, "th"),
+    return [...new Set([...summaryNames, ...dbList.filter((n) => summaryNames.has(n))])].sort(
+      (a, b) => a.localeCompare(b, "th"),
     );
-  }, [rows, type, dbOpts]);
+  }, [summaryNames, type, dbOpts]);
 
   const aRow = React.useMemo(
     () => (nameA ? rows.find((r) => r.name === nameA) : undefined),
@@ -231,12 +234,27 @@ export default function ComparePerformance() {
           </Stack>
         </Box>
 
-        <CollapseBlock
-          title="ดูตารางเปรียบเทียบ"
-          subtitle="ระบบจะอัปเดตทันทีเมื่อเปลี่ยนค่า A / B"
-          chipLabel={compared ? "พร้อมแสดงผล" : "รอข้อมูล A/B"}
-          defaultExpanded={false}
-        >
+        {hasNotFound && (
+          <Box
+            sx={{
+              p: 2,
+              borderRadius: 2,
+              bgcolor: "#fffbeb",
+              border: "1px solid #fde68a",
+            }}
+          >
+            <Typography variant="body2" sx={{ color: "#92400e", fontWeight: 600 }}>
+              {nameA && !aRow && (
+                <>ไม่พบข้อมูลสถิติของ &quot;{nameA}&quot; — ลองเลือกจากรายการแนะนำ<br /></>
+              )}
+              {nameB && !bRow && (
+                <>ไม่พบข้อมูลสถิติของ &quot;{nameB}&quot; — ลองเลือกจากรายการแนะนำ</>
+              )}
+            </Typography>
+          </Box>
+        )}
+
+        <Box>
           {compared ? (
             <Box>
               <Stack
@@ -388,7 +406,7 @@ export default function ComparePerformance() {
                 : "กรอกชื่อ A และ B เพื่อดูการเปรียบเทียบ"}
             </Typography>
           )}
-        </CollapseBlock>
+        </Box>
       </Stack>
     </SectionCard>
   );

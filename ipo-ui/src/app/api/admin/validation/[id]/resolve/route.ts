@@ -1,8 +1,7 @@
 import { query, isDatabaseConfigured } from "@/lib/db";
-import { requirePermission } from "@/lib/auth-guard";
 
 export async function POST(
-  request: Request,
+  _request: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
   if (!isDatabaseConfigured()) {
@@ -10,13 +9,6 @@ export async function POST(
       { error: "Database is not configured." },
       { status: 503 },
     );
-  }
-
-  try {
-    await requirePermission(request, "validation:write");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
   }
 
   const { id } = await ctx.params;

@@ -19,7 +19,6 @@ import InsightsRoundedIcon from "@mui/icons-material/InsightsRounded";
 import SectionCard from "../components/SectionCard";
 import LabeledField from "../components/LabeledField";
 import MetricPill from "../components/MetricPill";
-import CollapseBlock from "../components/CollapseBlock";
 import ReferenceLink from "../components/ReferenceLink";
 import { useAnalysis } from "../lib/AnalysisContext";
 import {
@@ -529,12 +528,7 @@ export default function FundamentalAnalysis() {
           />
         ) : null}
 
-        <CollapseBlock
-          title="สรุปตัวชี้วัดที่คำนวณได้"
-          subtitle="พับไว้ก่อนเพื่อโฟกัสการกรอกข้อมูลให้ครบ"
-          chipLabel={hasMetrics ? "อัปเดตแล้ว" : "รอข้อมูล"}
-          defaultExpanded={false}
-        >
+        <Box>
           {hasMetrics ? (
             <Box
               sx={{
@@ -598,7 +592,7 @@ export default function FundamentalAnalysis() {
               กรอกข้อมูลด้านบน ระบบจะคำนวณตัวชี้วัดให้ทันที
             </Typography>
           )}
-        </CollapseBlock>
+        </Box>
       </Stack>
     </SectionCard>
   );

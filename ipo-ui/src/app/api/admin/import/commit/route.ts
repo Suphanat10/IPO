@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { query, withTransaction } from "@/lib/db";
 import type { PoolClient } from "pg";
 import { syncMaturedIpoStatuses } from "@/lib/ipo-status";
-import { requirePermission } from "@/lib/auth-guard";
 import { logImportEvent } from "@/lib/audit";
 import type { CsvType } from "@/lib/csv-import";
 
@@ -545,14 +544,6 @@ async function handleSingle(body: { type?: CsvType; rows?: ApprovedRow[] }) {
 }
 
 export async function POST(req: Request) {
-  let session;
-  try {
-    session = await requirePermission(req, "ipos:write");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
-  }
-
   let body: { type?: CsvType; rows?: ApprovedRow[]; items?: CommitItem[] };
   try {
     body = await req.json();
@@ -567,8 +558,8 @@ export async function POST(req: Request) {
 
   await logImportEvent({
     request: req,
-    actorUserId: session.userId,
-    actorEmail: session.email,
+    actorUserId: null,
+    actorEmail: "admin",
     action: "import_commit",
     csvType,
     diff: {

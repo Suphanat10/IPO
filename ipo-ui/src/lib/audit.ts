@@ -115,7 +115,7 @@ export async function logUserManagementEvent({
   diff = {},
 }: {
   request: Request;
-  actorUserId: string;
+  actorUserId?: string | null;
   actorEmail?: string | null;
   targetUserId: string;
   targetEmail?: string | null;
@@ -123,7 +123,7 @@ export async function logUserManagementEvent({
   diff?: AuditDiff;
 }): Promise<void> {
   await writeAuditLog({
-    userId: actorUserId,
+    userId: actorUserId ?? null,
     entity: "admin_users",
     entityId: targetUserId,
     action,
@@ -145,14 +145,14 @@ export async function logImportEvent({
   diff = {},
 }: {
   request: Request;
-  actorUserId: string;
+  actorUserId?: string | null;
   actorEmail?: string | null;
   action: "import_preview" | "import_commit";
   csvType: string;
   diff?: AuditDiff;
 }): Promise<void> {
   await writeAuditLog({
-    userId: actorUserId,
+    userId: actorUserId ?? null,
     entity: "import",
     entityId: csvType,
     action,

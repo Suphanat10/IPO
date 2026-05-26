@@ -5,40 +5,87 @@ import {
   AppBar,
   Box,
   Container,
-  CircularProgress,
   Drawer,
+  Fade,
   IconButton,
-  LinearProgress,
   List,
   ListItem,
   ListItemButton,
+  ListItemIcon,
   ListItemText,
+  Paper,
+  Popper,
   Stack,
   Toolbar,
   Typography,
   useMediaQuery,
   useTheme,
+  ClickAwayListener,
+  alpha,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import CloseIcon from "@mui/icons-material/Close";
+import DashboardRoundedIcon from "@mui/icons-material/DashboardRounded";
+import TableChartRoundedIcon from "@mui/icons-material/TableChartRounded";
+import EventAvailableRoundedIcon from "@mui/icons-material/EventAvailableRounded";
+import CloudDownloadRoundedIcon from "@mui/icons-material/CloudDownloadRounded";
+import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
+import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
+import BuildRoundedIcon from "@mui/icons-material/BuildRounded";
+import HistoryRoundedIcon from "@mui/icons-material/HistoryRounded";
+import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
+import HandymanRoundedIcon from "@mui/icons-material/HandymanRounded";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { preloadDropdownOptions } from "../lib/useDropdownOptions";
-import StockHeroBackground from "./StockHeroBackground";
 import { preloadUpcomingIpos } from "./UpcomingIpoHero";
 
-const NAV_ITEMS: { href: string; label: string }[] = [
+/* ── Navigation data ── */
+
+type NavItem = {
+  href: string;
+  label: string;
+  icon?: React.ElementType;
+  desc?: string;
+};
+
+const MAIN_NAV: NavItem[] = [
   { href: "/", label: "IPO Analysis" },
   { href: "/explore", label: "Database Explorer" },
 ];
+
+const TOOLS_NAV: NavItem[] = [
+  { href: "/admin", label: "Dashboard", icon: DashboardRoundedIcon, desc: "ภาพรวมระบบ" },
+  { href: "/admin/ipos", label: "IPO Explorer", icon: TableChartRoundedIcon, desc: "ค้นหาและแก้ไขข้อมูล" },
+  { href: "/admin/upcoming", label: "IPO กำลังจะเข้า", icon: EventAvailableRoundedIcon, desc: "ความพร้อมก่อนเข้าตลาด" },
+  { href: "/admin/upcoming/scrape", label: "Scraper", icon: CloudDownloadRoundedIcon, desc: "ดึงข้อมูลจาก SET / SEC" },
+  { href: "/admin/validation", label: "Validation", icon: FactCheckRoundedIcon, desc: "ตรวจคุณภาพข้อมูล" },
+  { href: "/admin/import", label: "Import CSV", icon: UploadFileRoundedIcon, desc: "นำเข้าไฟล์ CSV" },
+  { href: "/admin/builds", label: "Builds", icon: BuildRoundedIcon, desc: "สร้างไฟล์ผลลัพธ์" },
+  { href: "/admin/audit", label: "Audit Log", icon: HistoryRoundedIcon, desc: "ประวัติการใช้งาน" },
+];
+
+const ALL_NAV = [...MAIN_NAV, ...TOOLS_NAV];
+
+function isNavActive(pathname: string, href: string): boolean {
+  if (href === "/" || href === "/admin") return pathname === href;
+  if (!pathname.startsWith(href)) return false;
+  return !ALL_NAV.some(
+    (other) =>
+      other.href !== href &&
+      other.href.startsWith(href + "/") &&
+      pathname.startsWith(other.href),
+  );
+}
+
+/* ── Preload ── */
 
 let homeDataReady = false;
 let homeDataInflight: Promise<void> | null = null;
 
 function preloadHomePageData() {
   if (homeDataReady) return Promise.resolve();
-
   if (!homeDataInflight) {
     homeDataInflight = Promise.allSettled([
       preloadUpcomingIpos(),
@@ -48,85 +95,302 @@ function preloadHomePageData() {
       homeDataInflight = null;
     });
   }
-
   return homeDataInflight;
 }
+
+/* ── Loading screen ── */
 
 function HomeLoadingScreen() {
   return (
     <Box
       sx={{
         minHeight: "100vh",
-        display: "grid",
-        placeItems: "center",
-        px: 2,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
         bgcolor: "#0a1929",
         color: "#fff",
-        backgroundImage: [
-          "linear-gradient(135deg, rgba(10,25,41,0.98) 0%, rgba(15,39,68,0.96) 48%, rgba(6,16,28,1) 100%)",
-          "repeating-linear-gradient(90deg, rgba(56,189,248,0.08) 0 1px, transparent 1px 42px)",
-          "linear-gradient(16deg, transparent 0 42%, rgba(34,197,94,0.16) 42.4%, transparent 43.2% 100%)",
-        ].join(","),
+        position: "relative",
+        overflow: "hidden",
+        "&::before": {
+          content: '""',
+          position: "absolute",
+          top: "-40%",
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: "600px",
+          height: "600px",
+          borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(56,189,248,0.08) 0%, transparent 70%)",
+          pointerEvents: "none",
+        },
       }}
     >
-      <Stack
-        spacing={2.25}
-        sx={{
-          width: "min(420px, 100%)",
-          alignItems: "center",
-          textAlign: "center",
-        }}
-      >
-        <Box sx={{ position: "relative", width: 76, height: 76 }}>
-          <CircularProgress
-            size={76}
-            thickness={3.4}
+      <Stack spacing={4} sx={{ alignItems: "center", zIndex: 1 }}>
+        {/* Logo + spinner */}
+        <Box sx={{ position: "relative", width: 80, height: 80 }}>
+          <Box
             sx={{
-              color: "rgba(56,189,248,0.22)",
               position: "absolute",
               inset: 0,
+              borderRadius: "50%",
+              border: "2px solid rgba(56,189,248,0.08)",
             }}
-            variant="determinate"
-            value={100}
           />
-          <CircularProgress
-            size={76}
-            thickness={3.4}
-            sx={{ color: "#38bdf8", position: "absolute", inset: 0 }}
+          <Box
+            sx={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: "50%",
+              border: "2px solid transparent",
+              borderTopColor: "#38bdf8",
+              animation: "spin 1.2s linear infinite",
+              "@keyframes spin": {
+                "0%": { transform: "rotate(0deg)" },
+                "100%": { transform: "rotate(360deg)" },
+              },
+            }}
           />
+          <Box
+            sx={{
+              position: "absolute",
+              inset: 0,
+              display: "grid",
+              placeItems: "center",
+            }}
+          >
+            <Image
+              src="/logo.c3dc7eeab8aedb0021bc.png"
+              alt="IPO Logo"
+              width={36}
+              height={36}
+              style={{ objectFit: "contain" }}
+              priority
+            />
+          </Box>
         </Box>
-        <Box>
-          <Typography sx={{ fontSize: { xs: 20, md: 24 }, fontWeight: 900, lineHeight: 1.2 }}>
-            กำลังโหลดข้อมูล IPO
+
+        {/* Text */}
+        <Stack spacing={0.75} sx={{ alignItems: "center", textAlign: "center" }}>
+          <Typography
+            sx={{
+              fontSize: { xs: 16, md: 18 },
+              fontWeight: 700,
+              letterSpacing: "-0.01em",
+            }}
+          >
+            IPO Analytics
           </Typography>
-          <Typography sx={{ mt: 0.75, color: "rgba(255,255,255,0.62)", fontSize: 13, lineHeight: 1.6 }}>
-            รอข้อมูลวิเคราะห์และตัวเลือกทั้งหมดให้พร้อมก่อนแสดงหน้าเว็บ
+          <Typography
+            sx={{
+              fontSize: 13,
+              color: "rgba(255,255,255,0.35)",
+              fontWeight: 500,
+            }}
+          >
+            กำลังเตรียมข้อมูลวิเคราะห์
           </Typography>
-        </Box>
-        <LinearProgress
-          sx={{
-            width: "100%",
-            height: 6,
-            borderRadius: 999,
-            bgcolor: "rgba(255,255,255,0.12)",
-            "& .MuiLinearProgress-bar": {
-              borderRadius: 999,
-              bgcolor: "#38bdf8",
-            },
-          }}
-        />
+        </Stack>
+
+        {/* Dots loader */}
+        <Stack direction="row" spacing={1}>
+          {[0, 1, 2].map((i) => (
+            <Box
+              key={i}
+              sx={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                bgcolor: "#38bdf8",
+                opacity: 0.3,
+                animation: "pulse 1.4s ease-in-out infinite",
+                animationDelay: `${i * 0.2}s`,
+                "@keyframes pulse": {
+                  "0%, 80%, 100%": { opacity: 0.3, transform: "scale(1)" },
+                  "40%": { opacity: 1, transform: "scale(1.3)" },
+                },
+              }}
+            />
+          ))}
+        </Stack>
       </Stack>
     </Box>
   );
 }
+
+/* ── Nav link pill (desktop) ── */
+
+function NavPill({ href, label, active }: { href: string; label: string; active: boolean }) {
+  return (
+    <Link href={href} style={{ textDecoration: "none" }}>
+      <Box
+        sx={{
+          px: 2,
+          py: 0.75,
+          borderRadius: "10px",
+          fontSize: 13.5,
+          fontWeight: 600,
+          whiteSpace: "nowrap",
+          color: active ? "#fff" : "rgba(255,255,255,0.55)",
+          bgcolor: active ? "rgba(255,255,255,0.1)" : "transparent",
+          transition: "all 0.15s ease",
+          "&:hover": {
+            color: "#fff",
+            bgcolor: active ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)",
+          },
+        }}
+      >
+        {label}
+      </Box>
+    </Link>
+  );
+}
+
+/* ── Tools dropdown (desktop) ── */
+
+function ToolsDropdown({ pathname }: { pathname: string }) {
+  const [open, setOpen] = React.useState(false);
+  const anchorRef = React.useRef<HTMLButtonElement>(null);
+  const isToolsActive = pathname.startsWith("/admin");
+
+  return (
+    <ClickAwayListener onClickAway={() => setOpen(false)}>
+      <Box sx={{ position: "relative" }}>
+        <Box
+          component="button"
+          ref={anchorRef}
+          onClick={() => setOpen((p) => !p)}
+          sx={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 0.5,
+            px: 2,
+            py: 0.75,
+            borderRadius: "10px",
+            fontSize: 13.5,
+            fontWeight: 600,
+            cursor: "pointer",
+            font: "inherit",
+            border: "none",
+            color: isToolsActive ? "#fff" : "rgba(255,255,255,0.55)",
+            bgcolor: isToolsActive || open ? "rgba(255,255,255,0.1)" : "transparent",
+            transition: "all 0.15s ease",
+            "&:hover": {
+              color: "#fff",
+              bgcolor: "rgba(255,255,255,0.1)",
+            },
+          }}
+        >
+          <HandymanRoundedIcon sx={{ fontSize: 15, opacity: 0.8 }} />
+          Tools
+          <KeyboardArrowDownRoundedIcon
+            sx={{
+              fontSize: 16,
+              ml: -0.25,
+              transition: "transform 0.2s",
+              transform: open ? "rotate(180deg)" : "none",
+              opacity: 0.7,
+            }}
+          />
+        </Box>
+
+        <Popper
+          open={open}
+          anchorEl={anchorRef.current}
+          placement="bottom-end"
+          transition
+          sx={{ zIndex: 1300 }}
+        >
+          {({ TransitionProps }) => (
+            <Fade {...TransitionProps} timeout={120}>
+              <Paper
+                elevation={0}
+                sx={{
+                  mt: 1.5,
+                  width: 280,
+                  bgcolor: "#0f1d2f",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: "14px",
+                  overflow: "hidden",
+                  py: 0.5,
+                  boxShadow: "0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05)",
+                }}
+              >
+                {TOOLS_NAV.map((item) => {
+                  const active = isNavActive(pathname, item.href);
+                  const Icon = item.icon!;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setOpen(false)}
+                      style={{ textDecoration: "none" }}
+                    >
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.25,
+                          px: 1.5,
+                          py: 1,
+                          mx: 0.5,
+                          borderRadius: "10px",
+                          color: active ? "#fff" : "rgba(255,255,255,0.65)",
+                          bgcolor: active ? "rgba(56,189,248,0.12)" : "transparent",
+                          transition: "all 0.12s ease",
+                          "&:hover": {
+                            bgcolor: active ? "rgba(56,189,248,0.16)" : "rgba(255,255,255,0.05)",
+                            color: "#fff",
+                          },
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            width: 30,
+                            height: 30,
+                            borderRadius: "8px",
+                            display: "grid",
+                            placeItems: "center",
+                            bgcolor: active ? "rgba(56,189,248,0.18)" : "rgba(255,255,255,0.06)",
+                            color: active ? "#38bdf8" : "rgba(255,255,255,0.5)",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Icon sx={{ fontSize: 16 }} />
+                        </Box>
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Typography sx={{ fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>
+                            {item.label}
+                          </Typography>
+                          {item.desc && (
+                            <Typography sx={{ fontSize: 11, color: "rgba(255,255,255,0.35)", lineHeight: 1.3, mt: 0.1 }}>
+                              {item.desc}
+                            </Typography>
+                          )}
+                        </Box>
+                      </Box>
+                    </Link>
+                  );
+                })}
+              </Paper>
+            </Fade>
+          )}
+        </Popper>
+      </Box>
+    </ClickAwayListener>
+  );
+}
+
+/* ── Main component ── */
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [drawerOpen, setDrawerOpen] = React.useState(false);
-  const isAdmin = pathname.startsWith("/admin");
   const isHome = pathname === "/";
+  const isAdmin = pathname.startsWith("/admin");
   const [homeReady, setHomeReady] = React.useState(() => homeDataReady);
 
   React.useEffect(() => {
@@ -150,10 +414,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [isHome]);
 
-  if (isAdmin) {
-    return <>{children}</>;
-  }
-
   if (isHome && !homeDataReady && !homeReady) {
     return <HomeLoadingScreen />;
   }
@@ -166,123 +426,159 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         color="transparent"
         elevation={0}
         sx={{
-          backgroundColor: "#0a1929",
-          borderBottom: "1px solid rgba(56,189,248,0.15)",
-          boxShadow: "0 1px 12px rgba(0,0,0,0.25)",
+          bgcolor: "rgba(10,25,41,0.92)",
+          backdropFilter: "blur(20px) saturate(1.4)",
+          WebkitBackdropFilter: "blur(20px) saturate(1.4)",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
           zIndex: 1200,
         }}
       >
-        <Toolbar sx={{ py: 0.75, minHeight: { xs: 56, md: 64 } }}>
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
-            <Box
-              sx={{
-                width: { xs: 36, md: 44 },
-                height: { xs: 36, md: 44 },
-                position: "relative",
-                flexShrink: 0,
-              }}
-            >
-              <Image
-                src="/logo.c3dc7eeab8aedb0021bc.png"
-                alt="IPO Logo"
-                fill
-                style={{
-                  objectFit: "contain",
-                  filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.45))",
+        <Toolbar
+          sx={{
+            py: 0.5,
+            minHeight: { xs: 52, md: 56 },
+            maxWidth: 1400,
+            width: "100%",
+            mx: "auto",
+            px: { xs: 2, md: 3 },
+          }}
+        >
+          {/* Logo */}
+          <Link href="/" style={{ textDecoration: "none" }}>
+            <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
+              <Box
+                sx={{
+                  width: { xs: 28, md: 32 },
+                  height: { xs: 28, md: 32 },
+                  position: "relative",
+                  flexShrink: 0,
                 }}
-                priority
-              />
-            </Box>
-            <Box>
+              >
+                <Image
+                  src="/logo.c3dc7eeab8aedb0021bc.png"
+                  alt="IPO Logo"
+                  fill
+                  style={{ objectFit: "contain" }}
+                  priority
+                />
+              </Box>
               <Typography
                 sx={{
-                  lineHeight: 1.15,
-                  fontSize: { xs: 14, sm: 17 },
+                  display: { xs: "none", sm: "block" },
+                  fontSize: 15,
                   color: "#fff",
-                  fontWeight: 800,
-                  letterSpacing: "-0.01em",
+                  fontWeight: 700,
+                  letterSpacing: "-0.02em",
                 }}
               >
                 IPO Analytics
               </Typography>
-              <Typography
-                sx={{
-                  fontSize: { xs: 10, sm: 11 },
-                  color: "rgba(255,255,255,0.5)",
-                  fontWeight: 500,
-                  letterSpacing: "0.02em",
-                }}
-              >
-                Performance Intelligence Platform
-              </Typography>
-            </Box>
-          </Stack>
+            </Stack>
+          </Link>
 
           <Box sx={{ flex: 1 }} />
 
+          {/* Desktop nav */}
           {!isMobile && (
             <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
-              {NAV_ITEMS.map((item) => {
-                const active = pathname === item.href;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    style={{ textDecoration: "none" }}
-                  >
-                    <Box
-                      sx={{
-                        px: 2,
-                        py: 0.85,
-                        borderRadius: 2,
-                        fontSize: 13,
-                        fontWeight: 700,
-                        color: active ? "#fff" : "rgba(255,255,255,0.6)",
-                        bgcolor: active ? "rgba(56,189,248,0.15)" : "transparent",
-                        border: active ? "1px solid rgba(56,189,248,0.25)" : "1px solid transparent",
-                        transition: "all 0.2s",
-                        "&:hover": {
-                          color: "#fff",
-                          bgcolor: "rgba(255,255,255,0.08)",
-                        },
-                      }}
-                    >
-                      {item.label}
-                    </Box>
-                  </Link>
-                );
-              })}
+              {MAIN_NAV.map((item) => (
+                <NavPill
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  active={isNavActive(pathname, item.href)}
+                />
+              ))}
+
+              <Box sx={{ width: "1px", height: 18, bgcolor: "rgba(255,255,255,0.1)", mx: 0.5 }} />
+
+              <ToolsDropdown pathname={pathname} />
             </Stack>
           )}
 
+          {/* Mobile hamburger */}
           {isMobile && (
             <IconButton
               edge="end"
               onClick={() => setDrawerOpen(true)}
               aria-label="open menu"
-              sx={{ color: "#fff" }}
+              sx={{ color: "rgba(255,255,255,0.8)", p: 1 }}
             >
-              <MenuIcon />
+              <MenuIcon sx={{ fontSize: 22 }} />
             </IconButton>
           )}
         </Toolbar>
       </AppBar>
 
-      {/* Mobile Drawer */}
+      {/* ── Mobile Drawer ── */}
       <Drawer
         anchor="right"
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        slotProps={{ paper: { sx: { width: 260, bgcolor: "#0f1d30" } } }}
+        slotProps={{
+          paper: {
+            sx: {
+              width: 300,
+              bgcolor: "#0b1929",
+              borderLeft: "1px solid rgba(255,255,255,0.06)",
+            },
+          },
+        }}
       >
-        <Box sx={{ p: 2, display: "flex", justifyContent: "flex-end" }}>
-          <IconButton onClick={() => setDrawerOpen(false)} sx={{ color: "#fff" }}>
-            <CloseIcon />
+        {/* Drawer header */}
+        <Box
+          sx={{
+            px: 2.5,
+            pt: 2,
+            pb: 1.5,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+            <Box sx={{ width: 24, height: 24, position: "relative", flexShrink: 0 }}>
+              <Image
+                src="/logo.c3dc7eeab8aedb0021bc.png"
+                alt="IPO Logo"
+                fill
+                style={{ objectFit: "contain" }}
+              />
+            </Box>
+            <Typography sx={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>
+              IPO Analytics
+            </Typography>
+          </Stack>
+          <IconButton
+            onClick={() => setDrawerOpen(false)}
+            sx={{ color: "rgba(255,255,255,0.4)", p: 0.5 }}
+          >
+            <CloseIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Box>
-        <List>
-          {NAV_ITEMS.map((item) => {
-            const active = pathname === item.href;
+
+        <Box sx={{ px: 2, pt: 1 }}>
+          <Box sx={{ height: "1px", bgcolor: "rgba(255,255,255,0.06)" }} />
+        </Box>
+
+        {/* Analysis section */}
+        <Box sx={{ px: 2.5, pt: 2 }}>
+          <Typography
+            sx={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: "rgba(255,255,255,0.3)",
+              textTransform: "uppercase",
+              letterSpacing: "0.1em",
+              mb: 0.75,
+            }}
+          >
+            Analysis
+          </Typography>
+        </Box>
+        <List dense disablePadding sx={{ px: 1 }}>
+          {MAIN_NAV.map((item) => {
+            const active = isNavActive(pathname, item.href);
             return (
               <ListItem key={item.href} disablePadding>
                 <Link
@@ -293,18 +589,93 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   <ListItemButton
                     selected={active}
                     sx={{
-                      borderRadius: 2,
-                      mx: 1,
-                      color: active ? "#38bdf8" : "rgba(255,255,255,0.7)",
-                      "&.Mui-selected": {
-                        bgcolor: "rgba(56,189,248,0.1)",
-                      },
-                      "& .MuiListItemText-primary": {
-                        fontWeight: active ? 700 : 500,
-                      },
+                      borderRadius: "10px",
+                      color: active ? "#fff" : "rgba(255,255,255,0.6)",
+                      bgcolor: active ? "rgba(56,189,248,0.1)" : "transparent",
+                      "&.Mui-selected": { bgcolor: "rgba(56,189,248,0.1)" },
+                      "&:hover": { bgcolor: "rgba(255,255,255,0.04)" },
+                      py: 1,
+                      px: 1.5,
                     }}
                   >
-                    <ListItemText primary={item.label} />
+                    <ListItemText
+                      primary={item.label}
+                      slotProps={{
+                        primary: {
+                          sx: { fontWeight: active ? 600 : 500, fontSize: 14 },
+                        },
+                      }}
+                    />
+                  </ListItemButton>
+                </Link>
+              </ListItem>
+            );
+          })}
+        </List>
+
+        {/* Tools section */}
+        <Box sx={{ px: 2.5, pt: 2.5 }}>
+          <Typography
+            sx={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: "rgba(255,255,255,0.3)",
+              textTransform: "uppercase",
+              letterSpacing: "0.1em",
+              mb: 0.75,
+            }}
+          >
+            Tools
+          </Typography>
+        </Box>
+        <List dense disablePadding sx={{ px: 1, pb: 2 }}>
+          {TOOLS_NAV.map((item) => {
+            const active = isNavActive(pathname, item.href);
+            const Icon = item.icon!;
+            return (
+              <ListItem key={item.href} disablePadding>
+                <Link
+                  href={item.href}
+                  style={{ textDecoration: "none", width: "100%" }}
+                  onClick={() => setDrawerOpen(false)}
+                >
+                  <ListItemButton
+                    selected={active}
+                    sx={{
+                      borderRadius: "10px",
+                      color: active ? "#fff" : "rgba(255,255,255,0.6)",
+                      bgcolor: active ? "rgba(56,189,248,0.1)" : "transparent",
+                      "&.Mui-selected": { bgcolor: "rgba(56,189,248,0.1)" },
+                      "&:hover": { bgcolor: "rgba(255,255,255,0.04)" },
+                      py: 0.75,
+                      px: 1.5,
+                    }}
+                  >
+                    <ListItemIcon
+                      sx={{
+                        minWidth: 32,
+                        color: active ? "#38bdf8" : "rgba(255,255,255,0.35)",
+                      }}
+                    >
+                      <Icon sx={{ fontSize: 17 }} />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={item.label}
+                      secondary={item.desc}
+                      slotProps={{
+                        primary: {
+                          sx: { fontWeight: active ? 600 : 500, fontSize: 13.5 },
+                        },
+                        secondary: {
+                          sx: {
+                            fontSize: 11,
+                            color: "rgba(255,255,255,0.25)",
+                            lineHeight: 1.2,
+                            mt: 0.1,
+                          },
+                        },
+                      }}
+                    />
                   </ListItemButton>
                 </Link>
               </ListItem>
@@ -313,154 +684,40 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </List>
       </Drawer>
 
-      {/* ── Hero Banner (homepage only) ── */}
-      {isHome && (
-        <StockHeroBackground>
-          <Container maxWidth="lg" sx={{ position: "relative", py: { xs: 4, md: 5 }, px: { xs: 2, md: 3 } }}>
-            <Stack spacing={1}>
-              <Typography
-                sx={{
-                  fontSize: { xs: 11, md: 12 },
-                  fontWeight: 800,
-                  letterSpacing: "0.15em",
-                  color: "#38bdf8",
-                  textTransform: "uppercase",
-                }}
-              >
-                IPO Performance Analytics
-              </Typography>
-              <Typography
-                sx={{
-                  fontSize: { xs: 24, md: 36 },
-                  fontWeight: 900,
-                  color: "#fff",
-                  lineHeight: 1.15,
-                  letterSpacing: "-0.02em",
-                  maxWidth: 700,
-                }}
-              >
-                วิเคราะห์ IPO เชิงลึก
-              </Typography>
-              <Typography
-                sx={{
-                  fontSize: { xs: 13, md: 15 },
-                  color: "rgba(255,255,255,0.6)",
-                  maxWidth: 600,
-                  lineHeight: 1.6,
-                }}
-              >
-                ระบบวิเคราะห์ผลงาน FA, Underwriter และปัจจัยพื้นฐาน จากฐานข้อมูล IPO ย้อนหลัง เพื่อช่วยตัดสินใจลงทุน
-              </Typography>
-
-              {/* Quick stats row */}
-              <Stack
-                direction="row"
-                spacing={{ xs: 2, md: 4 }}
-                sx={{ mt: { xs: 1.5, md: 2 } }}
-              >
-                {[
-                  { value: "3", label: "หมวดวิเคราะห์" },
-                  { value: "FA", label: "ที่ปรึกษาทางการเงิน" },
-                  { value: "UW", label: "ผู้จัดจำหน่าย" },
-                  { value: "Fund.", label: "ปัจจัยพื้นฐาน" },
-                ].map((stat) => (
-                  <Box key={stat.label}>
-                    <Typography
-                      sx={{
-                        fontSize: { xs: 18, md: 24 },
-                        fontWeight: 900,
-                        color: "#38bdf8",
-                        lineHeight: 1,
-                      }}
-                    >
-                      {stat.value}
-                    </Typography>
-                    <Typography
-                      sx={{
-                        fontSize: { xs: 10, md: 11 },
-                        color: "rgba(255,255,255,0.45)",
-                        fontWeight: 600,
-                        mt: 0.25,
-                      }}
-                    >
-                      {stat.label}
-                    </Typography>
-                  </Box>
-                ))}
-              </Stack>
-            </Stack>
-          </Container>
-        </StockHeroBackground>
+      {/* ── Content ── */}
+      {isAdmin ? (
+        <>{children}</>
+      ) : (
+        <Container maxWidth="lg" sx={{ py: { xs: 2, md: 4 }, px: { xs: 2, md: 3 } }}>
+          {children}
+        </Container>
       )}
 
-      {/* ── Non-home hero (explore, etc.) ── */}
-      {!isHome && (
-        <StockHeroBackground>
-          <Container maxWidth="lg" sx={{ position: "relative", py: { xs: 3, md: 5 }, px: { xs: 2, md: 3 } }}>
-            <Stack spacing={1}>
-              <Typography
-                sx={{
-                  fontSize: 11,
-                  fontWeight: 800,
-                  letterSpacing: "0.15em",
-                  color: "#38bdf8",
-                  textTransform: "uppercase",
-                }}
-              >
-                DATABASE EXPLORER
-              </Typography>
-              <Typography
-                sx={{
-                  fontSize: { xs: 20, md: 30 },
-                  fontWeight: 900,
-                  color: "#fff",
-                  lineHeight: 1.2,
-                }}
-              >
-                สำรวจฐานข้อมูล IPO ย้อนหลัง
-              </Typography>
-              <Typography
-                sx={{
-                  fontSize: { xs: 13, md: 15 },
-                  color: "rgba(255,255,255,0.6)",
-                  maxWidth: 600,
-                }}
-              >
-                ดูสถิติย้อนหลังของ FA / Underwriter รายบุคคล และเปรียบเทียบผลงาน A vs B
-              </Typography>
-            </Stack>
-          </Container>
-        </StockHeroBackground>
+      {/* ── Footer ── */}
+      {!isAdmin && (
+        <Box
+          sx={{
+            py: 2.5,
+            textAlign: "center",
+            color: "rgba(255,255,255,0.35)",
+            bgcolor: "#0a1929",
+            borderTop: "1px solid rgba(255,255,255,0.04)",
+            mt: 4,
+          }}
+        >
+          <Typography sx={{ fontSize: 11, fontWeight: 500 }}>
+            &copy; {new Date().getFullYear()} IPO Performance Analytics &middot;{" "}
+            <Link
+              href=""
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "rgba(56,189,248,0.7)", textDecoration: "none" }}
+            >
+              IDE Trade
+            </Link>
+          </Typography>
+        </Box>
       )}
-
-      <Container maxWidth="lg" sx={{ py: { xs: 2, md: 4 }, px: { xs: 2, md: 3 } }}>
-        {children}
-      </Container>
-
-      {/* Footer */}
-      <Box
-        sx={{
-          py: 3,
-          textAlign: "center",
-          color: "rgba(255,255,255,0.5)",
-          bgcolor: "#0a1929",
-          borderTop: "1px solid rgba(56,189,248,0.1)",
-          mt: 4,
-          px: 2,
-        }}
-      >
-        <Typography sx={{ fontSize: 11 }}>
-          &copy; {new Date().getFullYear()} IPO Performance Analytics. All rights reserved. | Developed by{" "}
-          <Link
-            href=""
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: "#38bdf8", textDecoration: "none" }}
-          >
-            IDE Trade
-          </Link>
-        </Typography>
-      </Box>
     </Box>
   );
 }

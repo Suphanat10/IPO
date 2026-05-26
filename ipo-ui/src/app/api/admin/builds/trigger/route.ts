@@ -1,19 +1,11 @@
 import { query, isDatabaseConfigured } from "@/lib/db";
-import { requirePermission } from "@/lib/auth-guard";
 
-export async function POST(request: Request) {
+export async function POST() {
   if (!isDatabaseConfigured()) {
     return Response.json(
       { error: "Database is not configured." },
       { status: 503 },
     );
-  }
-
-  try {
-    await requirePermission(request, "builds:trigger");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
   }
 
   const ghToken = process.env.GH_TOKEN;

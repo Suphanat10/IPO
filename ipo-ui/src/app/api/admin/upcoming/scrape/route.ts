@@ -1,18 +1,10 @@
 import { isDatabaseConfigured } from "@/lib/db";
-import { requirePermission } from "@/lib/auth-guard";
 import { logScraperEvent } from "@/lib/audit";
 import { ScrapeAlreadyRunningError, triggerScrape } from "@/lib/scraper-runner";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  let session;
-  try {
-    session = await requirePermission(request, "scraper:trigger");
-  } catch (response) {
-    return response as Response;
-  }
-
   if (!isDatabaseConfigured()) {
     return Response.json(
       { error: "Database is not configured." },
@@ -21,16 +13,16 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { runId } = await triggerScrape(session.email);
+    const { runId } = await triggerScrape("admin");
     await logScraperEvent({
       request,
-      actorUserId: session.userId,
-      actorEmail: session.email,
+      actorUserId: null,
+      actorEmail: "admin",
       entity: "scrape_runs",
       entityId: runId,
       action: "scraper_triggered",
       diff: {
-        triggered_by: session.email,
+        triggered_by: "admin",
         run_id: runId,
       },
     });

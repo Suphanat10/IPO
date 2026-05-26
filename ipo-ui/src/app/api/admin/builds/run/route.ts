@@ -1,6 +1,5 @@
 import { exec } from "node:child_process";
 import { query, isDatabaseConfigured } from "@/lib/db";
-import { requirePermission } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -58,13 +57,6 @@ export async function POST(request: Request) {
     );
   }
 
-  try {
-    await requirePermission(request, "builds:trigger");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
-  }
-
   let triggerType = "manual";
   try {
     const body = await request.json();
@@ -113,16 +105,9 @@ export async function POST(request: Request) {
   });
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   if (!isDatabaseConfigured()) {
     return Response.json({ running: false });
-  }
-
-  try {
-    await requirePermission(request, "builds:read");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
   }
 
   return Response.json({

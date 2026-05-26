@@ -15,7 +15,6 @@ import {
 import QueryStatsRoundedIcon from "@mui/icons-material/QueryStatsRounded";
 import SectionCard from "../components/SectionCard";
 import LabeledField from "../components/LabeledField";
-import CollapseBlock from "../components/CollapseBlock";
 import SummaryDataGrid from "../components/SummaryDataGrid";
 import type { ViewKey } from "../lib/types";
 import {
@@ -147,12 +146,7 @@ export default function HistoricalPerformance() {
 
         {error ? <Alert severity="error">{error}</Alert> : null}
 
-        <CollapseBlock
-          title="ดูตารางสถิติย้อนหลัง"
-          subtitle="FA Person / FA Company / Lead / Lead-Co"
-          chipLabel={`${filteredCount} rows`}
-          defaultExpanded={false}
-        >
+        <Box>
           <Stack
             direction={{ xs: "column", md: "row" }}
             spacing={2}
@@ -201,7 +195,7 @@ export default function HistoricalPerformance() {
             minIpo={historical.minIpo}
             maxIpo={historical.maxIpo}
           />
-        </CollapseBlock>
+        </Box>
       </Stack>
     </SectionCard>
   );

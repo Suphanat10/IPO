@@ -19,14 +19,11 @@ import EventAvailableRoundedIcon from "@mui/icons-material/EventAvailableRounded
 import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
 import HistoryRoundedIcon from "@mui/icons-material/HistoryRounded";
 import KeyboardArrowRightRoundedIcon from "@mui/icons-material/KeyboardArrowRightRounded";
-import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
-import ManageAccountsRoundedIcon from "@mui/icons-material/ManageAccountsRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
-import AccountCircleRoundedIcon from "@mui/icons-material/AccountCircleRounded";
 import TableChartRoundedIcon from "@mui/icons-material/TableChartRounded";
 import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { ADMIN_RADIUS, ADMIN_SIDEBAR_WIDTH, adminColors } from "./AdminPrimitives";
 
 type NavItem = {
@@ -34,76 +31,34 @@ type NavItem = {
   label: string;
   description: string;
   icon: React.ElementType;
-  requiredPermission?: string;
 };
 
 const NAV: NavItem[] = [
   { href: "/admin", label: "Dashboard", description: "System health", icon: DashboardRoundedIcon },
   { href: "/admin/ipos", label: "IPO Explorer", description: "Search and edit records", icon: TableChartRoundedIcon },
   { href: "/admin/upcoming", label: "IPO กำลังจะเข้า", description: "ความพร้อมก่อนเข้าตลาด", icon: EventAvailableRoundedIcon },
-  { href: "/admin/upcoming/scrape", label: "Scraper / ดึงข้อมูล IPO", description: "SET + SEC, diff history", icon: CloudDownloadRoundedIcon, requiredPermission: "scraper:trigger" },
+  { href: "/admin/upcoming/scrape", label: "Scraper / ดึงข้อมูล IPO", description: "SET + SEC, diff history", icon: CloudDownloadRoundedIcon },
   { href: "/admin/validation", label: "ตรวจคุณภาพ / Validation", description: "คิวตรวจคุณภาพข้อมูล / Data quality queue", icon: FactCheckRoundedIcon },
-  { href: "/admin/import", label: "Import CSV", description: "Preview and commit", icon: UploadFileRoundedIcon, requiredPermission: "ipos:write" },
+  { href: "/admin/import", label: "Import CSV", description: "Preview and commit", icon: UploadFileRoundedIcon },
   { href: "/admin/builds", label: "สร้างไฟล์ / Builds", description: "สายงานไฟล์ผลลัพธ์ / Artifact pipeline", icon: BuildRoundedIcon },
-  { href: "/admin/admins", label: "แอดมิน / Admins", description: "เพิ่ม ลบ แก้ไขผู้ดูแลระบบ / Manage admins", icon: ManageAccountsRoundedIcon, requiredPermission: "admins:manage" },
   { href: "/admin/audit", label: "ตรวจย้อนหลัง / Audit", description: "", icon: HistoryRoundedIcon },
 ];
 
-const ROLE_PERMISSIONS: Record<string, string[]> = {
-  super_admin: ["*"],
-  admin: [
-    "ipos:read", "ipos:write", "ipos:delete",
-    "validation:read", "validation:write",
-    "builds:read", "builds:trigger",
-    "scraper:trigger",
-  ],
-  scraper: ["ipos:read", "scraper:trigger"],
-  readonly: ["ipos:read", "validation:read", "builds:read"],
-};
-
-function hasPermission(role: string, permission: string): boolean {
-  const perms = ROLE_PERMISSIONS[role] ?? [];
-  return perms.includes("*") || perms.includes(permission);
-}
-
-function filterNavByRole(items: NavItem[], role: string): NavItem[] {
-  return items.filter(
-    (item) => !item.requiredPermission || hasPermission(role, item.requiredPermission),
-  );
-}
-
-function getNavGroups(role: string) {
-  const filtered = filterNavByRole(NAV, role);
-  const overviewHrefs = new Set(["/admin", "/admin/ipos", "/admin/upcoming", "/admin/upcoming/scrape"]);
-  return [
-    { label: "Overview", items: filtered.filter((i) => overviewHrefs.has(i.href)) },
-    { label: "Operations", items: filtered.filter((i) => !overviewHrefs.has(i.href)) },
-  ].filter((g) => g.items.length > 0);
-}
-
-type CurrentAdmin = {
-  userId: string;
-  email: string;
-  firstName: string | null;
-  lastName: string | null;
-  role: string;
-};
-
 function isActive(pathname: string, href: string) {
   if (href === "/admin") return pathname === "/admin";
-  // Exact match or a deeper segment, but never let a shorter href win over a longer one.
   if (pathname === href) return true;
   if (!pathname.startsWith(`${href}/`)) return false;
-  // If a longer NAV entry also matches, defer to it.
   return !NAV.some(
     (entry) => entry.href !== href && entry.href.startsWith(`${href}/`) && pathname.startsWith(entry.href),
   );
 }
 
-function adminDisplayName(admin: CurrentAdmin | null) {
-  if (!admin) return "Admin";
-  const name = [admin.firstName, admin.lastName].filter(Boolean).join(" ").trim();
-  return name || admin.email;
+function getNavGroups() {
+  const overviewHrefs = new Set(["/admin", "/admin/ipos", "/admin/upcoming", "/admin/upcoming/scrape"]);
+  return [
+    { label: "Overview", items: NAV.filter((i) => overviewHrefs.has(i.href)) },
+    { label: "Operations", items: NAV.filter((i) => !overviewHrefs.has(i.href)) },
+  ].filter((g) => g.items.length > 0);
 }
 
 function BrandMark() {
@@ -253,62 +208,14 @@ function NavLinkItem({
 
 function NavContent({
   pathname,
-  admin,
   onNavigate,
-  onLogout,
 }: {
   pathname: string;
-  admin: CurrentAdmin | null;
   onNavigate?: () => void;
-  onLogout: () => void;
 }) {
   return (
     <Stack sx={{ height: "100%", p: 2 }}>
       <BrandMark />
-
-      <Link href="/admin/profile" onClick={onNavigate} style={{ textDecoration: "none" }}>
-        <Box
-          sx={{
-            mt: 2,
-            p: 1,
-            borderRadius: `${ADMIN_RADIUS + 2}px`,
-            bgcolor: pathname === "/admin/profile" ? "rgba(14, 165, 233, 0.17)" : "rgba(15, 23, 42, 0.58)",
-            border: `1px solid ${pathname === "/admin/profile" ? "rgba(56, 189, 248, 0.35)" : "rgba(56, 189, 248, 0.18)"}`,
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)",
-            cursor: "pointer",
-            transition: "background-color 140ms ease, border-color 140ms ease",
-            "&:hover": {
-              bgcolor: "rgba(14, 165, 233, 0.14)",
-              borderColor: "rgba(56, 189, 248, 0.3)",
-            },
-          }}
-        >
-          <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
-            <Box
-              sx={{
-                width: 36,
-                height: 36,
-                borderRadius: `${ADMIN_RADIUS}px`,
-                display: "grid",
-                placeItems: "center",
-                bgcolor: "rgba(56, 189, 248, 0.16)",
-                color: adminColors.cyan,
-                flexShrink: 0,
-              }}
-            >
-              <AccountCircleRoundedIcon fontSize="small" />
-            </Box>
-            <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography sx={{ color: "#f8fafc", fontSize: 13, fontWeight: 900, lineHeight: 1.2, letterSpacing: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {adminDisplayName(admin)}
-              </Typography>
-              <Typography sx={{ color: "rgba(226, 232, 240, 0.58)", fontSize: 11, lineHeight: 1.25, letterSpacing: 0, mt: 0.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {admin?.email ?? "ผู้ดูแลระบบ"}
-              </Typography>
-            </Box>
-          </Stack>
-        </Box>
-      </Link>
 
       <Stack
         spacing={2}
@@ -327,7 +234,7 @@ function NavContent({
           },
         }}
       >
-        {getNavGroups(admin?.role ?? "readonly").map((group) => (
+        {getNavGroups().map((group) => (
           <Stack key={group.label} spacing={0.55}>
             <Typography
               sx={{
@@ -354,86 +261,13 @@ function NavContent({
           </Stack>
         ))}
       </Stack>
-
-      <Box
-        component="button"
-        type="button"
-        onClick={onLogout}
-        sx={{
-          mt: 2,
-          width: "100%",
-          display: "grid",
-          gridTemplateColumns: "34px minmax(0, 1fr)",
-          columnGap: 1,
-          alignItems: "center",
-          borderRadius: `${ADMIN_RADIUS}px`,
-          color: "#f8fafc",
-          bgcolor: "rgba(15, 23, 42, 0.62)",
-          border: "1px solid rgba(148, 163, 184, 0.2)",
-          px: 0.85,
-          py: 0.85,
-          fontWeight: 850,
-          font: "inherit",
-          textAlign: "left",
-          cursor: "pointer",
-          transition: "background-color 140ms ease, border-color 140ms ease, color 140ms ease",
-          "&:hover": {
-            bgcolor: "rgba(244, 63, 94, 0.12)",
-            borderColor: "rgba(244, 63, 94, 0.35)",
-          },
-        }}
-      >
-        <Box
-          sx={{
-            width: 30,
-            height: 30,
-            borderRadius: 999,
-            display: "grid",
-            placeItems: "center",
-            bgcolor: "rgba(148, 163, 184, 0.14)",
-            color: "rgba(226, 232, 240, 0.88)",
-          }}
-        >
-          <LogoutRoundedIcon sx={{ fontSize: 18 }} />
-        </Box>
-        <Typography sx={{ fontSize: 13, fontWeight: 900, lineHeight: 1.2, letterSpacing: 0 }}>
-          Logout
-        </Typography>
-      </Box>
     </Stack>
   );
 }
 
 export default function AdminNav() {
   const pathname = usePathname();
-  const router = useRouter();
   const [mobileOpen, setMobileOpen] = React.useState(false);
-  const [admin, setAdmin] = React.useState<CurrentAdmin | null>(null);
-
-  React.useEffect(() => {
-    let alive = true;
-
-    async function loadAdmin() {
-      try {
-        const res = await fetch("/api/auth/me", { cache: "no-store" });
-        if (!res.ok) return;
-        const data = await res.json() as CurrentAdmin;
-        if (alive) setAdmin(data);
-      } catch {
-        // Keep the sidebar usable even if session metadata cannot be loaded.
-      }
-    }
-
-    void loadAdmin();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/admin/login");
-  }
 
   return (
     <>
@@ -451,7 +285,7 @@ export default function AdminNav() {
           zIndex: (theme) => theme.zIndex.drawer,
         }}
       >
-        <NavContent pathname={pathname} admin={admin} onLogout={logout} />
+        <NavContent pathname={pathname} />
       </Box>
 
       <AppBar
@@ -501,9 +335,7 @@ export default function AdminNav() {
         </Stack>
         <NavContent
           pathname={pathname}
-          admin={admin}
           onNavigate={() => setMobileOpen(false)}
-          onLogout={logout}
         />
       </Drawer>
     </>

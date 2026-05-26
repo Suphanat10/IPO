@@ -17,6 +17,8 @@ type Props = {
   subtitle?: string;
   chipLabel?: string;
   defaultExpanded?: boolean;
+  /** Controlled expand — when provided, overrides internal state. */
+  expanded?: boolean;
   children: React.ReactNode;
 };
 
@@ -25,11 +27,17 @@ export default function CollapseBlock({
   subtitle,
   chipLabel,
   defaultExpanded = false,
+  expanded: controlledExpanded,
   children,
 }: Props) {
+  const [internalExpanded, setInternalExpanded] = React.useState(defaultExpanded);
+
+  const isExpanded = controlledExpanded ?? internalExpanded;
+
   return (
     <Accordion
-      defaultExpanded={defaultExpanded}
+      expanded={isExpanded}
+      onChange={(_, val) => setInternalExpanded(val)}
       disableGutters
       elevation={0}
       sx={{

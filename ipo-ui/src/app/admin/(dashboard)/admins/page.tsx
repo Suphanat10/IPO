@@ -2,7 +2,6 @@ export const dynamic = "force-dynamic";
 
 import { Stack } from "@mui/material";
 import { query } from "@/lib/db";
-import { getSession } from "@/lib/session";
 import {
   AdminPageHeader,
 } from "../../components/AdminPrimitives";
@@ -28,10 +27,7 @@ async function getAdminUsers(): Promise<{ rows: AdminUserRow[]; error: string | 
 }
 
 export default async function AdminUsersPage() {
-  const [{ rows, error }, session] = await Promise.all([
-    getAdminUsers(),
-    getSession(),
-  ]);
+  const { rows, error } = await getAdminUsers();
 
   return (
     <Stack spacing={3}>
@@ -44,7 +40,7 @@ export default async function AdminUsersPage() {
       <AdminUsersClient
         initialRows={rows}
         initialError={error}
-        currentUserId={session?.userId ?? null}
+        currentUserId={null}
       />
     </Stack>
   );

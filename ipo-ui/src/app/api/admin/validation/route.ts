@@ -1,20 +1,12 @@
 import { query, isDatabaseConfigured } from "@/lib/db";
 import { syncMaturedIpoStatuses } from "@/lib/ipo-status";
-import { requirePermission } from "@/lib/auth-guard";
 
-export async function GET(request: Request) {
+export async function GET() {
   if (!isDatabaseConfigured()) {
     return Response.json(
       { error: "Database is not configured." },
       { status: 503 },
     );
-  }
-
-  try {
-    await requirePermission(request, "validation:read");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
   }
 
   try {
@@ -32,19 +24,12 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST() {
   if (!isDatabaseConfigured()) {
     return Response.json(
       { error: "Database is not configured." },
       { status: 503 },
     );
-  }
-
-  try {
-    await requirePermission(request, "validation:write");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
   }
 
   try {

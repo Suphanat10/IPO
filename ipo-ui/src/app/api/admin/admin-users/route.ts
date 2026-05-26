@@ -6,9 +6,7 @@ import {
   normalizeEmail,
   validatePassword,
 } from "@/lib/admin-password";
-import { requirePermission } from "@/lib/auth-guard";
 import { logUserManagementEvent } from "@/lib/audit";
-import type { SessionPayload } from "@/lib/session";
 
 type AdminUserRow = {
   user_id: string;
@@ -18,33 +16,6 @@ type AdminUserRow = {
   created_at: string | null;
 };
 
-function auditSnapshot(row: AdminUserRow) {
-  return {
-    user_id: row.user_id,
-    email: row.email,
-    first_name: row.first_name,
-    last_name: row.last_name,
-  };
-}
-
-async function authorizeRead(request: Request): Promise<SessionPayload | Response> {
-  try {
-    return await requirePermission(request, "admin_users:read");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
-  }
-}
-
-async function authorizeCreate(request: Request): Promise<SessionPayload | Response> {
-  try {
-    return await requirePermission(request, "admin_users:create");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
-  }
-}
-
 function missingDatabaseResponse() {
   return Response.json(
     { error: "Database is not configured." },
@@ -52,11 +23,8 @@ function missingDatabaseResponse() {
   );
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   if (!isDatabaseConfigured()) return missingDatabaseResponse();
-
-  const auth = await authorizeRead(request);
-  if (auth instanceof Response) return auth;
 
   try {
     const data = await query<AdminUserRow>(
@@ -70,9 +38,6 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   if (!isDatabaseConfigured()) return missingDatabaseResponse();
-
-  const auth = await authorizeCreate(request);
-  if (auth instanceof Response) return auth;
 
   try {
     const body = await request.json();
@@ -116,13 +81,18 @@ export async function POST(request: Request) {
     if (data[0]) {
       await logUserManagementEvent({
         request,
-        actorUserId: auth.userId,
-        actorEmail: auth.email,
+        actorUserId: null,
+        actorEmail: "admin",
         targetUserId: data[0].user_id,
         targetEmail: data[0].email,
         action: "admin_user_created",
         diff: {
-          after: auditSnapshot(data[0]),
+          after: {
+            user_id: data[0].user_id,
+            email: data[0].email,
+            first_name: data[0].first_name,
+            last_name: data[0].last_name,
+          },
         },
       });
     }

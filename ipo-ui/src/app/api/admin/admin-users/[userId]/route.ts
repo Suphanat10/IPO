@@ -5,9 +5,7 @@ import {
   normalizeEmail,
   validatePassword,
 } from "@/lib/admin-password";
-import { requirePermission } from "@/lib/auth-guard";
 import { logUserManagementEvent } from "@/lib/audit";
-import type { SessionPayload } from "@/lib/session";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -29,24 +27,6 @@ function auditSnapshot(row: AdminUserRow) {
   };
 }
 
-async function authorizeUpdate(request: Request): Promise<SessionPayload | Response> {
-  try {
-    return await requirePermission(request, "admin_users:update");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
-  }
-}
-
-async function authorizeDelete(request: Request): Promise<SessionPayload | Response> {
-  try {
-    return await requirePermission(request, "admin_users:delete");
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
-  }
-}
-
 function missingDatabaseResponse() {
   return Response.json(
     { error: "Database is not configured." },
@@ -64,9 +44,6 @@ export async function PATCH(
   ctx: { params: Promise<{ userId: string }> },
 ) {
   if (!isDatabaseConfigured()) return missingDatabaseResponse();
-
-  const auth = await authorizeUpdate(request);
-  if (auth instanceof Response) return auth;
 
   try {
     const { userId: rawUserId } = await ctx.params;
@@ -129,8 +106,8 @@ export async function PATCH(
 
     await logUserManagementEvent({
       request,
-      actorUserId: auth.userId,
-      actorEmail: auth.email,
+      actorUserId: null,
+      actorEmail: "admin",
       targetUserId: rows[0].user_id,
       targetEmail: rows[0].email,
       action: "admin_user_updated",
@@ -156,20 +133,10 @@ export async function DELETE(
 ) {
   if (!isDatabaseConfigured()) return missingDatabaseResponse();
 
-  const auth = await authorizeDelete(request);
-  if (auth instanceof Response) return auth;
-
   const { userId: rawUserId } = await ctx.params;
   const userId = decodeURIComponent(rawUserId).trim();
   const userIdError = validateUserId(userId);
   if (userIdError) return Response.json({ error: userIdError }, { status: 400 });
-
-  if (auth.userId === userId) {
-    return Response.json(
-      { error: "ไม่สามารถลบ admin ที่กำลังใช้งานอยู่ได้" },
-      { status: 400 },
-    );
-  }
 
   try {
     const rows = await query<AdminUserRow>(
@@ -181,8 +148,8 @@ export async function DELETE(
     }
     await logUserManagementEvent({
       request,
-      actorUserId: auth.userId,
-      actorEmail: auth.email,
+      actorUserId: null,
+      actorEmail: "admin",
       targetUserId: rows[0].user_id,
       targetEmail: rows[0].email,
       action: "admin_user_deleted",

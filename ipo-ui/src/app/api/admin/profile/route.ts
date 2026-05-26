@@ -6,10 +6,7 @@ import {
   validatePassword,
   verifyPassword,
 } from "@/lib/admin-password";
-import { requireAdmin } from "@/lib/auth-guard";
 import { logUserManagementEvent } from "@/lib/audit";
-import { createSession } from "@/lib/session";
-import type { SessionPayload } from "@/lib/session";
 
 type ProfileRow = {
   user_id: string;
@@ -33,15 +30,6 @@ function auditSnapshot(row: ProfileRow) {
   };
 }
 
-async function authorize(request: Request): Promise<SessionPayload | Response> {
-  try {
-    return await requireAdmin(request);
-  } catch (err) {
-    if (err instanceof Response) return err;
-    throw err;
-  }
-}
-
 function missingDatabaseResponse() {
   return Response.json(
     { error: "Database is not configured." },
@@ -49,21 +37,17 @@ function missingDatabaseResponse() {
   );
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   if (!isDatabaseConfigured()) return missingDatabaseResponse();
-
-  const auth = await authorize(request);
-  if (auth instanceof Response) return auth;
 
   try {
     const rows = await query<ProfileRow>(
       `SELECT user_id, email, first_name, last_name, created_at::text AS created_at, updated_at::text AS updated_at
-       FROM admin_users WHERE user_id = $1 LIMIT 1`,
-      [auth.userId],
+       FROM admin_users ORDER BY created_at ASC LIMIT 1`,
     );
 
     if (rows.length === 0) {
-      return Response.json({ error: "Admin not found" }, { status: 404 });
+      return Response.json({ error: "No admin found" }, { status: 404 });
     }
 
     return Response.json({ user: rows[0] });
@@ -82,20 +66,22 @@ export async function PUT(request: Request) {
 export async function PATCH(request: Request) {
   if (!isDatabaseConfigured()) return missingDatabaseResponse();
 
-  const auth = await authorize(request);
-  if (auth instanceof Response) return auth;
-
   try {
+    const body = await request.json();
+    const userId = body.user_id;
+    if (!userId) {
+      return Response.json({ error: "user_id is required" }, { status: 400 });
+    }
+
     const beforeRows = await query<ProfileAuditRow>(
       `SELECT user_id, email, first_name, last_name, password_hash, created_at::text AS created_at, updated_at::text AS updated_at
        FROM admin_users WHERE user_id = $1 LIMIT 1`,
-      [auth.userId],
+      [userId],
     );
     if (beforeRows.length === 0) {
       return Response.json({ error: "Admin not found" }, { status: 404 });
     }
 
-    const body = await request.json();
     const email = normalizeEmail(body.email);
     const firstName = cleanName(body.first_name ?? body.firstName);
     const lastName = cleanName(body.last_name ?? body.lastName);
@@ -111,7 +97,7 @@ export async function PATCH(request: Request) {
 
     const duplicate = await query(
       "SELECT user_id FROM admin_users WHERE lower(email) = $1 AND user_id <> $2 LIMIT 1",
-      [email, auth.userId],
+      [email, userId],
     );
     if (duplicate.length > 0) {
       return Response.json(
@@ -154,7 +140,7 @@ export async function PATCH(request: Request) {
       "admin_users",
       updateData,
       "user_id = $1",
-      [auth.userId],
+      [userId],
       "user_id, email, first_name, last_name, created_at::text AS created_at, updated_at::text AS updated_at",
     );
     const rows = await query<ProfileRow>(text, values);
@@ -163,17 +149,10 @@ export async function PATCH(request: Request) {
       return Response.json({ error: "Admin not found" }, { status: 404 });
     }
 
-    await createSession(
-      rows[0].user_id,
-      rows[0].email,
-      rows[0].first_name,
-      rows[0].last_name,
-    );
-
     await logUserManagementEvent({
       request,
-      actorUserId: auth.userId,
-      actorEmail: auth.email,
+      actorUserId: userId,
+      actorEmail: email,
       targetUserId: rows[0].user_id,
       targetEmail: rows[0].email,
       action: "admin_profile_updated",

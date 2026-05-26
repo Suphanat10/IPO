@@ -1,5 +1,4 @@
 import { query, isDatabaseConfigured } from "@/lib/db";
-import { requireAdmin } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -19,13 +18,7 @@ type RunRow = {
   error_message: string | null;
 };
 
-export async function GET(request: Request) {
-  try {
-    await requireAdmin(request);
-  } catch (response) {
-    return response as Response;
-  }
-
+export async function GET() {
   if (!isDatabaseConfigured()) {
     return Response.json({ error: "Database is not configured." }, { status: 503 });
   }

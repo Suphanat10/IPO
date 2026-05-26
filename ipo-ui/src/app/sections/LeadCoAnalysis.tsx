@@ -17,7 +17,6 @@ import AccountBalanceRoundedIcon from "@mui/icons-material/AccountBalanceRounded
 import SectionCard from "../components/SectionCard";
 import LabeledField from "../components/LabeledField";
 import MetricPill from "../components/MetricPill";
-import CollapseBlock from "../components/CollapseBlock";
 import ReferenceLink from "../components/ReferenceLink";
 import { useAnalysis } from "../lib/AnalysisContext";
 import { useDropdownOptions } from "../lib/useDropdownOptions";
@@ -292,12 +291,7 @@ export default function LeadCoAnalysis() {
           </Box>
         ) : null}
 
-        <CollapseBlock
-          title="ดูสถิติ Lead/Co (summary rows)"
-          subtitle="สถิติรวมจาก leadUnderwritersSummary / leadCoSummary"
-          chipLabel={matchCount > 0 ? `${matchCount} matches` : "รอข้อมูล"}
-          defaultExpanded={false}
-        >
+        <Box>
           {leadRow || pairRow ? (
             <Stack spacing={2.5}>
               {leadRow ? <StatsRow title={`Lead - ${leadRow.name}`} row={leadRow} /> : null}
@@ -328,7 +322,7 @@ export default function LeadCoAnalysis() {
               กรอกชื่อ Lead หรือ Lead/Co เพื่อดูสถิติที่เกี่ยวข้อง
             </Typography>
           )}
-        </CollapseBlock>
+        </Box>
       </Stack>
     </SectionCard>
   );
