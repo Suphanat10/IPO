@@ -23,6 +23,7 @@ import LabeledField from "../components/LabeledField";
 import CollapseBlock from "../components/CollapseBlock";
 import ReferenceLink from "../components/ReferenceLink";
 import { useAnalysis } from "../lib/AnalysisContext";
+import { useDropdownOptions } from "../lib/useDropdownOptions";
 import type { EntityType, SummaryRow } from "../lib/types";
 import {
   faCompaniesSummary,
@@ -81,9 +82,21 @@ function fmtDelta(v: number | null, unit?: "pct" | "num") {
 export default function ComparePerformance() {
   const { compare, setCompare } = useAnalysis();
   const { type, nameA, nameB } = compare;
+  const dbOpts = useDropdownOptions();
 
   const rows = CONFIG[type].rows;
-  const options = React.useMemo(() => rows.map((r) => r.name), [rows]);
+  const options = React.useMemo(() => {
+    const fromSummary = rows.map((r) => r.name);
+    const dbList =
+      type === "FA Person"
+        ? dbOpts.faPersons
+        : type === "FA Company"
+          ? dbOpts.faCompanies
+          : dbOpts.underwriters;
+    return [...new Set([...fromSummary, ...dbList])].sort((a, b) =>
+      a.localeCompare(b, "th"),
+    );
+  }, [rows, type, dbOpts]);
 
   const aRow = React.useMemo(
     () => (nameA ? rows.find((r) => r.name === nameA) : undefined),

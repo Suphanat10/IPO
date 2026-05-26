@@ -7,6 +7,9 @@ SELECT
   i.id,
   i.symbol,
   i.company_name,
+  i.market,
+  i.industry,
+  i.sector,
   i.status,
   i.listing_date,
   i.updated_at,
@@ -61,6 +64,8 @@ SELECT
   i.sector,
   i.listing_date,
   i.ipo_price,
+  i.fa_companies,
+  i.fa_persons,
   (i.listing_date - CURRENT_DATE) AS days_until,
   c.completeness_pct
 FROM ipos i

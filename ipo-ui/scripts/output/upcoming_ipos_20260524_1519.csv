@@ -1,0 +1,10 @@
+﻿symbol,company,market,sector,ipo_price,par_value,listing_date,offered_shares,gross_proceeds,total_expense,offered_ratio,existing_pct,exec_pct,total_assets,total_equity,revenue,net_income,fa_person,lead_uw,sec_trans_id
+TNCC,ThaiNamthip Corporation Public Company L,SET,FOOD,,2.0,,612451687,,,10.0,,54.54,24664246481.0,,41314239614.0,4379079121.0,นางสาว ชมพูนุท บุญสัมพันธ์,-,691643
+SUEN,SUEN CORP PUBLIC COMPANY LIMITED,SET,COMM,,0.5,,196240000,,,25.82,,99.85,,,3589800776.07,256699281.00000036,-,-,754859
+TIPAK,Thai Packaging Industry Public Company L,SET,PKG,,1.0,,143683370,,,26.03,,1.0,712348167.0,1061578772.0,,,กาณต์ศิณี บุญศิริมงคลชัย,-,759798
+TEBP,THAI EASTERN BIO POWER PUBLIC COMPANY LI,mai,,,1.0,,75000000,,,25.0,5.0,1.0,,,,,นาย นพร เมฆโสภณ,-,691772
+PETPAL,Petpal Products Public Company Limited,mai,,,0.5,,52769000,,,35.0,,1.0,111907431.0,151251964.0,,66200182.0,-,-,698844
+PHAT,PHATRA GROUP PUBLIC COMPANY LIMITED,mai,,,,,98857264,,,,,68.76,,,1620763936.0,,นาย ณัชพงศ์ เตียวศิริชัยสกุล,-,730096
+QUICK,QUICK TRANSFORMATION PUBLIC COMPANY LIMI,mai,,,0.5,,32000000,,,31.37,,1.0,88356327.82000001,47042011.24999997,254367081.47,,นางสาว ศลิษา ผิวสานต์,-,731496
+MER,GRAND COS GROUP PUBLIC COMPANY LIMITED,mai,,,0.5,,66000000,,,28.21,,1.0,531596583.42,,1228084493.0299995,98710270.51,นางสาว สุมาลี ตันตยาภรณ์,-,746220
+FLE,FRONTLINE ENGINEERING PUBLIC COMPANY LIM,mai,,,0.5,,100000000,,,33.33,,30.0,181031321.0,140186623.0,580328949.0,37099043.0,นาย เสกสรรค์ ธโนปจัย,-,754066
