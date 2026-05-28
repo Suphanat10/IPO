@@ -4,12 +4,14 @@ import * as React from "react";
 import { Box, Grid, Stack } from "@mui/material";
 import {
   ArcElement,
+  BarController,
   BarElement,
   CategoryScale,
   Chart as ChartJS,
   Filler,
   Legend,
   LinearScale,
+  LineController,
   LineElement,
   PointElement,
   Tooltip,
@@ -22,11 +24,13 @@ import { AdminPanel, adminColors } from "../../components/AdminPrimitives";
 
 ChartJS.register(
   ArcElement,
+  BarController,
   BarElement,
   CategoryScale,
   Filler,
   Legend,
   LinearScale,
+  LineController,
   LineElement,
   PointElement,
   Tooltip,
