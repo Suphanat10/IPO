@@ -46,7 +46,7 @@ export default async function UpcomingIposPage() {
 
       <ListingReadinessDashboard rows={rows} />
 
-      <AdminPanel title="รายการเข้าตลาดที่กำลังจะมา" subtitle="เรียงตามวันที่เข้าเทรดใกล้ที่สุด" noPadding>
+      <AdminPanel title="รายการเข้าตลาดที่กำลังจะมา" subtitle="เรียงตามคะแนนวิเคราะห์จากสูงไปต่ำ" noPadding>
         <UpcomingTable rows={rows} />
       </AdminPanel>
     </Stack>

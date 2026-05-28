@@ -133,7 +133,7 @@ function computeFundamentalFromFinancials(ipo: UpcomingIpo): ComputedFundamental
   return { costRatio, netProceedsRatio, newPct, totalShares, marketCap, roe, de, pe, pbv };
 }
 
-function buildRecommendation(ipo: UpcomingIpo): Recommendation {
+export function buildRecommendation(ipo: UpcomingIpo): Recommendation {
   const reasons: string[] = [];
   const scores: number[] = [];
   let winRate: number | null = null;
@@ -232,7 +232,12 @@ function getPreloadedUpcomingIpos() {
 function buildRecommendations(ipos: UpcomingIpo[]) {
   return ipos
     .map(buildRecommendation)
-    .sort((a, b) => (a.ipo.days_until ?? 9999) - (b.ipo.days_until ?? 9999));
+    .sort((a, b) => {
+      // Primary: score descending (high → low)
+      if (b.score !== a.score) return b.score - a.score;
+      // Tiebreaker: days_until ascending (closer first)
+      return (a.ipo.days_until ?? 9999) - (b.ipo.days_until ?? 9999);
+    });
 }
 
 const decisionConfig: Record<

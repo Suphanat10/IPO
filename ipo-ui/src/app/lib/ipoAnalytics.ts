@@ -365,6 +365,7 @@ export type Conclusion = {
   showLongTerm: boolean;
   recommendation: string[];
   warningLowSample: boolean;
+  fallbackNotice: string | null;
   drawdown: {
     mean: number | null;
     median: number | null;
@@ -395,6 +396,7 @@ function buildConclusion(rows: RawIpoRow[], modeDesc: string): Conclusion {
       showLongTerm: false,
       recommendation: [],
       warningLowSample: false,
+      fallbackNotice: null,
       drawdown: { mean: null, median: null, p75: null, p90: null },
     };
   }
@@ -494,6 +496,7 @@ function buildConclusion(rows: RawIpoRow[], modeDesc: string): Conclusion {
     showLongTerm,
     recommendation,
     warningLowSample: rows.length < 10,
+    fallbackNotice: null,
     drawdown,
   };
 }
@@ -522,7 +525,20 @@ export function generateLeadCoConclusion(
 ): Conclusion {
   const coList = parseCoList(co);
   const { rows, mode } = selectLeadCoDataset(lead, coList);
-  return buildConclusion(rows, mode);
+  const conclusion = buildConclusion(rows, mode);
+
+  // ถ้า user ใส่ทั้ง Lead + Co แต่ mode ที่ถูกเลือกไม่ได้คิด Co (เช่น "Lead: XXX")
+  // หมายความว่า Lead+Co exact-match มีตัวอย่างไม่ถึง MIN_SAMPLE → fall back ใช้ Lead อย่างเดียว
+  if (lead && coList.length > 0 && conclusion.found) {
+    const exactCount = filterByLeadAndCos(lead, coList).length;
+    if (mode.startsWith("Lead:") || mode.startsWith("Co:")) {
+      conclusion.fallbackNotice =
+        `ข้อมูล Lead + Co ร่วมกันมีเพียง ${exactCount} ราย (ต่ำกว่าเกณฑ์ขั้นต่ำ ${MIN_SAMPLE} ราย) ` +
+        `จึงยังไม่ถูกนำมาคิดสถิติ — ระบบใช้สถิติของ ${mode.startsWith("Lead:") ? "Lead เพียงตัวเดียว" : "Co เพียงตัวเดียว"}แทน`;
+    }
+  }
+
+  return conclusion;
 }
 
 // ---------- single-entity views (FA Person tab / FA Company tab / Lead-only / Co-only) ----------

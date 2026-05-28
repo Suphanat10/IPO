@@ -173,9 +173,28 @@ function ChartShell({
   height?: number;
 }) {
   return (
-    <AdminPanel title={title} subtitle={subtitle}>
-      <Box sx={{ height: { xs: Math.max(260, height - 40), md: height }, minWidth: 0 }}>
-        {children}
+    <AdminPanel
+      title={title}
+      subtitle={subtitle}
+      noPadding
+      sx={{
+        width: "100%",
+        height: { xs: "auto", md: height + 110 },
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <Box
+        sx={{
+          p: { xs: 2, md: 2.5 },
+          flex: 1,
+          minHeight: { xs: Math.max(260, height - 40), md: 0 },
+          minWidth: 0,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <Box sx={{ flex: 1, minHeight: 0, minWidth: 0 }}>{children}</Box>
       </Box>
     </AdminPanel>
   );
@@ -327,8 +346,8 @@ export default function DashboardReportCharts({
 
   return (
     <Stack spacing={2}>
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, lg: 7 }}>
+      <Grid container spacing={2} sx={{ alignItems: "stretch" }}>
+        <Grid size={{ xs: 12, lg: 7 }} sx={{ display: "flex" }}>
           <ChartShell
             title="แนวโน้ม IPO รายปี / Yearly IPO trend"
             subtitle="แท่งสี teal คือจำนวน IPO ทั้งหมด เส้นสีเทาคือจำนวนที่จดทะเบียนแล้ว / Bars show total IPO, line shows listed IPO"
@@ -337,11 +356,11 @@ export default function DashboardReportCharts({
             <Chart type="bar" data={yearlyData} options={yearlyOptions} plugins={[yearlyComboLabelPlugin]} />
           </ChartShell>
         </Grid>
-        <Grid size={{ xs: 12, lg: 5 }}>
+        <Grid size={{ xs: 12, lg: 5 }} sx={{ display: "flex" }}>
           <ChartShell
             title="สถานะข้อมูล / Status distribution"
             subtitle="จดทะเบียนแล้ว / Listed, IPO กำลังจะเข้า / Upcoming และ ยกเลิก / Cancelled"
-            height={340}
+            height={390}
           >
             <Box sx={{ width: "100%", height: "100%" }}>
               <Doughnut data={statusData} options={statusOptions} />

@@ -42,7 +42,7 @@ export default function ConclusionView({
   }
 
   const { summary, risk, decision, decisionLabel, sampleSize, holding,
-    horizon, day12, tpD1, tpD2, recommendation, warningLowSample, drawdown } = conclusion;
+    horizon, day12, tpD1, tpD2, recommendation, warningLowSample, drawdown, fallbackNotice } = conclusion;
 
   return (
     <Stack spacing={2} sx={{ fontFamily: "monospace", fontSize: 13 }}>
@@ -53,24 +53,36 @@ export default function ConclusionView({
         </Box>
       </Box>
 
-      <Box>
-        <Box>- หุ้นตัวนี้มีโอกาสขึ้นในวันแรก ≈ <b>{fmtPct(summary?.prob_close_above_ipo)}</b></Box>
-        <Box>- ผลตอบแทนเฉลี่ยวันแรก ≈ <b>{fmtPct(summary?.avg_return_close_d1)}</b></Box>
-        <Box>- โอกาสขาดทุนเกิน -20% ≈ <b>{fmtPct(risk?.downside_freq_20)}</b></Box>
-        {risk?.risk_reward != null ? (
-          <Box>- Risk / Reward Ratio: <b>{fmtNum(risk.risk_reward)}</b></Box>
-        ) : null}
-        <Box>- จำนวน IPO ที่ใช้วิเคราะห์: <b>{sampleSize}</b></Box>
-        <Box
-          sx={{
-            mt: 0.75,
-            color: decision === "BUY" ? "success.main" : "error.main",
-            fontWeight: 700,
-          }}
-        >
-          - {decisionLabel} (Score: {(conclusion.score * 100).toFixed(2)} / 100)
-        </Box>
-      </Box>
+      {(() => {
+        const verdictColor = decision === "BUY" ? "success.main" : "error.main";
+        const isAvoid = decision === "AVOID";
+        const probUp = summary?.prob_close_above_ipo;
+        const avgRet = summary?.avg_return_close_d1;
+        const downside = risk?.downside_freq_20;
+        const colorFor = (good: boolean | null) =>
+          good == null ? "text.primary" : good ? "success.main" : "error.main";
+        const probUpColor = isAvoid ? "error.main" : colorFor(probUp == null ? null : probUp >= 50);
+        const avgRetColor = isAvoid ? "error.main" : colorFor(avgRet == null ? null : avgRet >= 0);
+        const downsideColor = isAvoid ? "error.main" : colorFor(downside == null ? null : downside <= 25);
+        return (
+          <Box>
+            <Box sx={{ color: probUpColor }}>- หุ้นตัวนี้มีโอกาสขึ้นในวันแรก ≈ <b>{fmtPct(probUp)}</b></Box>
+            <Box sx={{ color: avgRetColor }}>- ผลตอบแทนเฉลี่ยวันแรก ≈ <b>{fmtPct(avgRet)}</b></Box>
+            <Box sx={{ color: downsideColor }}>- โอกาสขาดทุนเกิน -20% ≈ <b>{fmtPct(downside)}</b></Box>
+            {risk?.risk_reward != null ? (
+              <Box sx={{ color: "text.primary" }}>
+                - Risk / Reward Ratio: <b>{fmtNum(risk.risk_reward)}</b>
+              </Box>
+            ) : null}
+            <Box sx={{ color: "text.primary" }}>
+              - จำนวน IPO ที่ใช้วิเคราะห์: <b>{sampleSize}</b>
+            </Box>
+            <Box sx={{ mt: 0.75, color: verdictColor, fontWeight: 700 }}>
+              - {decisionLabel} (Score: {(conclusion.score * 100).toFixed(2)} / 100)
+            </Box>
+          </Box>
+        );
+      })()}
 
       <Box>
         <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5, fontSize: 12 }}>
@@ -164,6 +176,12 @@ export default function ConclusionView({
           {recommendation.map((line, i) => (
             <Box key={i}>- {line}</Box>
           ))}
+        </Box>
+      ) : null}
+
+      {fallbackNotice ? (
+        <Box sx={{ color: "warning.main" }}>
+          หมายเหตุ: {fallbackNotice}
         </Box>
       ) : null}
 
