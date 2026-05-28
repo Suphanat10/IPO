@@ -33,7 +33,7 @@ type NavItem = {
 };
 
 const NAV: NavItem[] = [
-  { href: "/ipo/Dashboard", label: "Dashboard", description: "System health", icon: DashboardRoundedIcon },
+  { href: "/ipo/dashboard", label: "Dashboard", description: "System health", icon: DashboardRoundedIcon },
   { href: "/ipo/ipos", label: "IPO Explorer", description: "Search and edit records", icon: TableChartRoundedIcon },
   { href: "/ipo/upcoming", label: "IPO กำลังจะเข้า", description: "ความพร้อมก่อนเข้าตลาด", icon: EventAvailableRoundedIcon },
   { href: "/ipo/upcoming/scrape", label: "Scraper / ดึงข้อมูล IPO", description: "SET + SEC, diff history", icon: CloudDownloadRoundedIcon },
@@ -43,7 +43,7 @@ const NAV: NavItem[] = [
 ];
 
 function isActive(pathname: string, href: string) {
-  if (href === "/ipo/Dashboard") return pathname === "/ipo/Dashboard";
+  if (href === "/ipo/dashboard") return pathname === "/ipo/dashboard";
   if (pathname === href) return true;
   if (!pathname.startsWith(`${href}/`)) return false;
   return !NAV.some(
@@ -52,7 +52,7 @@ function isActive(pathname: string, href: string) {
 }
 
 function getNavGroups() {
-  const overviewHrefs = new Set(["/ipo/Dashboard", "/ipo/ipos", "/ipo/upcoming", "/ipo/upcoming/scrape"]);
+  const overviewHrefs = new Set(["/ipo/dashboard", "/ipo/ipos", "/ipo/upcoming", "/ipo/upcoming/scrape"]);
   return [
     { label: "Overview", items: NAV.filter((i) => overviewHrefs.has(i.href)) },
     { label: "Operations", items: NAV.filter((i) => !overviewHrefs.has(i.href)) },

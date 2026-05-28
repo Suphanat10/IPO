@@ -54,7 +54,7 @@ const MAIN_NAV: NavItem[] = [
 ];
 
 const TOOLS_NAV: NavItem[] = [
-  { href: "/ipo/Dashboard", label: "Dashboard", icon: DashboardRoundedIcon, desc: "ภาพรวมระบบ" },
+  { href: "/ipo/dashboard", label: "Dashboard", icon: DashboardRoundedIcon, desc: "ภาพรวมระบบ" },
   { href: "/ipo/ipos", label: "IPO Explorer", icon: TableChartRoundedIcon, desc: "ค้นหาและแก้ไขข้อมูล" },
   { href: "/ipo/upcoming", label: "IPO กำลังจะเข้า", icon: EventAvailableRoundedIcon, desc: "ความพร้อมก่อนเข้าตลาด" },
   { href: "/ipo/upcoming/scrape", label: "Scraper", icon: CloudDownloadRoundedIcon, desc: "ดึงข้อมูลจาก SET / SEC" },
@@ -66,7 +66,7 @@ const TOOLS_NAV: NavItem[] = [
 const ALL_NAV = [...MAIN_NAV, ...TOOLS_NAV];
 
 function isNavActive(pathname: string, href: string): boolean {
-  if (href === "/" || href === "/ipo/Dashboard") return pathname === href;
+  if (href === "/" || href === "/ipo/dashboard") return pathname === href;
   if (!pathname.startsWith(href)) return false;
   return !ALL_NAV.some(
     (other) =>

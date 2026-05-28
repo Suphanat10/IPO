@@ -28,7 +28,7 @@ import { ADMIN_RADIUS, adminColors } from "../components/AdminPrimitives";
 function LoginContent() {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/ipo/Dashboard";
+  const next = params.get("next") || "/ipo/dashboard";
 
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
