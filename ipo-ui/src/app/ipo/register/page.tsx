@@ -62,7 +62,7 @@ function RegisterContent() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Registration failed");
-      router.replace("/ipo");
+      router.replace("/ipo/Dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

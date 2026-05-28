@@ -3,7 +3,7 @@
   Stack,
 } from "@mui/material";
 import type { DashboardReport } from "@/lib/admin/report";
-import { AdminPanel } from "../components/AdminPrimitives";
+import { AdminPanel } from "../../components/AdminPrimitives";
 import DashboardReportCharts from "./DashboardReportCharts";
 import MarketMixDoughnutChart from "./MarketMixDoughnutChart";
 import TopSectorsChart from "./TopSectorsChart";

@@ -18,7 +18,7 @@ import {
   type Plugin,
 } from "chart.js";
 import { Chart, Doughnut } from "react-chartjs-2";
-import { AdminPanel, adminColors } from "../components/AdminPrimitives";
+import { AdminPanel, adminColors } from "../../components/AdminPrimitives";
 
 ChartJS.register(
   ArcElement,

@@ -11,7 +11,7 @@ import {
   type ChartOptions,
 } from "chart.js";
 import { Doughnut } from "react-chartjs-2";
-import { ADMIN_RADIUS, adminColors } from "../components/AdminPrimitives";
+import { ADMIN_RADIUS, adminColors } from "../../components/AdminPrimitives";
 
 ChartJS.register(ArcElement, Legend, Tooltip);
 
