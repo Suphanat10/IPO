@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+﻿import { randomUUID } from "node:crypto";
 import { query, isDatabaseConfigured } from "@/lib/db";
 import {
   cleanName,
@@ -7,7 +7,6 @@ import {
   validatePassword,
 } from "@/lib/admin-password";
 import { createSession } from "@/lib/session";
-import { logUserManagementEvent } from "@/lib/audit";
 
 export async function POST(request: Request) {
   if (!isDatabaseConfigured()) {
@@ -73,24 +72,6 @@ export async function POST(request: Request) {
   }
 
   await createSession(userId, email, firstName, lastName);
-
-  await logUserManagementEvent({
-    request,
-    actorUserId: userId,
-    actorEmail: email,
-    targetUserId: userId,
-    targetEmail: email,
-    action: "admin_user_created",
-    diff: {
-      source: "self_register",
-      after: {
-        user_id: userId,
-        email,
-        first_name: firstName,
-        last_name: lastName,
-      },
-    },
-  });
 
   return Response.json({
     ok: true,

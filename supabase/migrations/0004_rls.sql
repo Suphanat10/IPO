@@ -31,7 +31,6 @@ ALTER TABLE validation_rules    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE validation_results  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE build_runs          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE build_logs          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE audit_logs          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sync_jobs           ENABLE ROW LEVEL SECURITY;
 
 -- Drop + recreate policies (idempotent re-run)
@@ -41,7 +40,7 @@ BEGIN
   FOREACH t IN ARRAY ARRAY[
     'ipos','ipo_financials','fa_normalizations','sectors',
     'validation_rules','validation_results',
-    'build_runs','build_logs','audit_logs','sync_jobs'
+    'build_runs','build_logs','sync_jobs'
   ] LOOP
     EXECUTE format('DROP POLICY IF EXISTS admin_all ON %I', t);
     EXECUTE format($p$

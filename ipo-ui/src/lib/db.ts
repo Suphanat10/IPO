@@ -7,9 +7,12 @@ const DB_RETRY_BASE_DELAY_MS = Number(process.env.DB_RETRY_BASE_DELAY_MS ?? 250)
 const pool = process.env.DATABASE_URL
   ? new Pool({
       connectionString: process.env.DATABASE_URL,
-      max: 10,
-      idleTimeoutMillis: 20_000,
+      max: 3,
+      idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 10_000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10_000,
+      allowExitOnIdle: true,
       ssl: process.env.DATABASE_URL.includes("supabase.com")
         ? { rejectUnauthorized: false }
         : undefined,
@@ -23,7 +26,13 @@ const pool = process.env.DATABASE_URL
       max: 10,
       idleTimeoutMillis: 20_000,
       connectionTimeoutMillis: 10_000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10_000,
     });
+
+pool.on("error", (err) => {
+  console.error("[db] Idle client error:", err.message);
+});
 
 export default pool;
 
@@ -34,7 +43,7 @@ function sleep(ms: number) {
 function isRetryableConnectionError(error: unknown) {
   if (!error || typeof error !== "object") return false;
   const code = "code" in error ? String(error.code) : "";
-  return [
+  if ([
     "ENOTFOUND",
     "EAI_AGAIN",
     "ECONNRESET",
@@ -43,7 +52,9 @@ function isRetryableConnectionError(error: unknown) {
     "57P01",
     "57P02",
     "57P03",
-  ].includes(code);
+  ].includes(code)) return true;
+  const msg = "message" in error ? String(error.message) : "";
+  return /Connection terminated|terminating connection/i.test(msg);
 }
 
 function describeDbTarget() {

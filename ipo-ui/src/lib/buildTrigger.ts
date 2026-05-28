@@ -1,7 +1,7 @@
-// Helper to auto-trigger a build after data mutations.
+﻿// Helper to auto-trigger a build after data mutations.
 // Called from API route handlers after a successful write.
 //
-// Strategy: fire-and-forget POST to /api/admin/builds/run.
+// Strategy: fire-and-forget POST to /api/ipo/builds/run.
 // The endpoint deduplicates concurrent triggers itself.
 
 let pendingTimer: NodeJS.Timeout | null = null;
@@ -29,7 +29,7 @@ async function triggerBuildNow(reason: string): Promise<void> {
   const url = base.startsWith("http") ? base : `https://${base}`;
 
   try {
-    await fetch(`${url}/api/admin/builds/run`, {
+    await fetch(`${url}/api/ipo/builds/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ trigger_type: `auto:${reason}` }),

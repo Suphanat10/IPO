@@ -148,21 +148,8 @@ CREATE TABLE IF NOT EXISTS build_logs (
 CREATE INDEX IF NOT EXISTS idx_build_logs_run ON build_logs(run_id, ts);
 
 -- =====================================================
--- 6. Audit + sync jobs
+-- 6. Sync jobs
 -- =====================================================
-CREATE TABLE IF NOT EXISTS audit_logs (
-  id              BIGSERIAL PRIMARY KEY,
-  user_id         UUID,
-  entity          TEXT NOT NULL,
-  entity_id       TEXT NOT NULL,
-  action          TEXT NOT NULL,
-  diff            JSONB,
-  created_at      TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity, entity_id);
-CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
-
 CREATE TABLE IF NOT EXISTS sync_jobs (
   id              BIGSERIAL PRIMARY KEY,
   source          TEXT NOT NULL,

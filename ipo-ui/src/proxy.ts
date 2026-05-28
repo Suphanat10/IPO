@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 export async function proxy(_request: NextRequest) {
@@ -6,5 +6,5 @@ export async function proxy(_request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  matcher: ["/ipo/:path*"],
 };

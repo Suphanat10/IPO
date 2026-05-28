@@ -1,5 +1,6 @@
-import { spawn } from "node:child_process";
 import { query } from "./db";
+import { cleanupStaleScrapeRuns, getScraperTimeoutMs } from "./scrape-runs";
+import { runScraper } from "./scraper";
 
 type ScrapeRunInsertRow = {
   id: string | null;
@@ -9,7 +10,6 @@ type ScrapeRunInsertRow = {
 
 const SCRAPER_LOCK_KEY_1 = 481516234;
 const SCRAPER_LOCK_KEY_2 = 108;
-const DEFAULT_RUN_TIMEOUT_MS = 30 * 60 * 1000;
 
 export class ScrapeAlreadyRunningError extends Error {
   constructor(message = "Another scrape is already running") {
@@ -18,7 +18,9 @@ export class ScrapeAlreadyRunningError extends Error {
   }
 }
 
-export async function triggerScrape(triggeredBy: string): Promise<{ runId: string }> {
+export async function triggerScrape(triggeredBy: string): Promise<{ runId: string; completion: Promise<void> }> {
+  await cleanupStaleScrapeRuns();
+
   const runs = await query<ScrapeRunInsertRow>(
     `WITH lock AS (
        SELECT pg_try_advisory_xact_lock($2::int, $3::int) AS acquired
@@ -52,89 +54,28 @@ export async function triggerScrape(triggeredBy: string): Promise<{ runId: strin
   }
 
   const runId = run.id;
-  const scriptPath = "scripts/scrape_upcoming_ipos.py";
-  const pythonCmd = process.env.PYTHON_BIN ?? "python";
-  const timeoutMs = Number(process.env.SCRAPER_RUN_TIMEOUT_MS ?? DEFAULT_RUN_TIMEOUT_MS);
+  const timeoutMs = getScraperTimeoutMs();
 
-  const startedAt = Date.now();
-  const logChunks: string[] = [];
-  let finalized = false;
-
-  const child = spawn(
-    pythonCmd,
-    [scriptPath, "--run-id", runId],
-    {
-      env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: false,
-    },
-  );
-
-  child.stdout?.on("data", (buf: Buffer) => {
-    logChunks.push(buf.toString());
-  });
-  child.stderr?.on("data", (buf: Buffer) => {
-    logChunks.push(buf.toString());
-  });
-
-  async function markFailed(errorMessage: string) {
-    if (finalized) return;
-    finalized = true;
-    const duration = Date.now() - startedAt;
-    const logExcerpt = logChunks.join("").slice(-8000);
-    await query(
-      `UPDATE scrape_runs
-       SET status = 'failed', finished_at = now(), duration_ms = $1, error_message = $2, log_excerpt = $3
-       WHERE id = $4`,
-      [duration, errorMessage, logExcerpt, runId],
-    );
-  }
-
-  const timeoutId = Number.isFinite(timeoutMs) && timeoutMs > 0
-    ? setTimeout(() => {
-        logChunks.push(`\nScraper timed out after ${timeoutMs} ms; terminating child process.\n`);
-        child.kill();
-        markFailed(`Scraper timed out after ${timeoutMs} ms`).catch((err) => {
-          console.error("Failed to record scraper timeout", err);
-        });
-      }, timeoutMs)
-    : null;
-
-  child.on("close", async (code) => {
-    if (timeoutId) clearTimeout(timeoutId);
-    if (finalized) return;
-    const duration = Date.now() - startedAt;
-    const logExcerpt = logChunks.join("").slice(-8000);
+  const completion = (async () => {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`Scraper timed out after ${timeoutMs} ms`)), timeoutMs);
+    });
 
     try {
-      if (code === 0) {
-        finalized = true;
-        await query(
-          "UPDATE scrape_runs SET duration_ms = $1, log_excerpt = $2 WHERE id = $3",
-          [duration, logExcerpt, runId],
-        );
-      } else {
-        finalized = true;
-        await query(
-          `UPDATE scrape_runs SET status = 'failed', finished_at = now(), duration_ms = $1, error_message = $2, log_excerpt = $3 WHERE id = $4`,
-          [duration, `Python exit code ${code}`, logExcerpt, runId],
-        );
-      }
+      await Promise.race([runScraper(runId), timeoutPromise]);
     } catch (err) {
-      console.error("Failed to finalize scrape_runs row", err);
+      try {
+        await query(
+          `UPDATE scrape_runs SET status = 'failed', finished_at = now(),
+           duration_ms = (EXTRACT(EPOCH FROM (now() - started_at)) * 1000)::int,
+           error_message = $1 WHERE id = $2 AND status = 'running'`,
+          [err instanceof Error ? err.message : String(err), runId],
+        );
+      } catch (dbErr) {
+        console.error("[scraper-runner] Failed to record scraper error", dbErr);
+      }
     }
-  });
+  })();
 
-  child.on("error", async (err) => {
-    if (timeoutId) clearTimeout(timeoutId);
-    try {
-      await markFailed(`Failed to spawn python: ${err.message}`);
-    } catch (innerErr) {
-      console.error("Failed to record spawn error", innerErr);
-    }
-  });
-
-  child.unref();
-
-  return { runId };
+  return { runId, completion };
 }

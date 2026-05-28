@@ -1,7 +1,6 @@
-import { query, isDatabaseConfigured } from "@/lib/db";
+﻿import { query, isDatabaseConfigured } from "@/lib/db";
 import { normalizeEmail, verifyPassword } from "@/lib/admin-password";
 import { createSession } from "@/lib/session";
-import { logSecurityEvent } from "@/lib/audit";
 
 type AdminLoginRow = {
   user_id: string;
@@ -32,12 +31,6 @@ export async function POST(request: Request) {
   const password = typeof body.password === "string" ? body.password : "";
 
   if (!email || !password) {
-    await logSecurityEvent({
-      email: email || undefined,
-      request,
-      action: "login_failed",
-      reason: "missing_credentials",
-    });
     return Response.json(
       { error: "Email and password are required" },
       { status: 400 },
@@ -46,12 +39,6 @@ export async function POST(request: Request) {
 
   // Basic email format validation
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    await logSecurityEvent({
-      email,
-      request,
-      action: "login_failed",
-      reason: "invalid_email_format",
-    });
     return Response.json(
       { error: "รูปแบบอีเมลไม่ถูกต้อง / Invalid email format" },
       { status: 400 },
@@ -66,12 +53,6 @@ export async function POST(request: Request) {
   const ok = admin ? await verifyPassword(password, admin.password_hash) : false;
 
   if (!admin || !ok) {
-    await logSecurityEvent({
-      email,
-      request,
-      action: "login_failed",
-      reason: !admin ? "unknown_email" : "wrong_password",
-    });
     return Response.json(
       { error: "Email or password is incorrect." },
       { status: 401 },
@@ -79,13 +60,6 @@ export async function POST(request: Request) {
   }
 
   if (admin.is_active === false) {
-    await logSecurityEvent({
-      userId: admin.user_id,
-      email,
-      request,
-      action: "login_rejected",
-      reason: "account_deactivated",
-    });
     return Response.json(
       { error: "บัญชีนี้ถูกปิดใช้งาน / This account is deactivated." },
       { status: 403 },

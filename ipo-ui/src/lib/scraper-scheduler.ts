@@ -1,4 +1,5 @@
 import { query, isDatabaseConfigured } from "./db";
+import { cleanupStaleScrapeRuns } from "./scrape-runs";
 import { triggerScrape } from "./scraper-runner";
 import {
   findDueScheduleSlot,
@@ -29,6 +30,8 @@ async function tick(now: BangkokClockParts = getBangkokClockParts()) {
     const matchKey = scheduleSlotKey(matched);
     if (matchKey === lastTriggeredKey) return;
 
+    await cleanupStaleScrapeRuns();
+
     const running = await query<RunningRow>(
       "SELECT COUNT(*)::text AS cnt FROM scrape_runs WHERE status = 'running'",
     );
@@ -40,7 +43,10 @@ async function tick(now: BangkokClockParts = getBangkokClockParts()) {
     lastTriggeredKey = matchKey;
     console.log(`[scraper-scheduler] Triggering scheduled scrape at ${now.key} (Bangkok) for slot ${matchKey}`);
 
-    await triggerScrape(`scheduler (${matchKey})`);
+    const { completion } = await triggerScrape(`scheduler (${matchKey})`);
+    completion.catch((err) => {
+      console.error("[scraper-scheduler] Background scrape failed:", err);
+    });
   } catch (err) {
     console.error("[scraper-scheduler] Error during tick:", err);
   }

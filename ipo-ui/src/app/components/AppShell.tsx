@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import {
@@ -32,7 +32,6 @@ import CloudDownloadRoundedIcon from "@mui/icons-material/CloudDownloadRounded";
 import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
 import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
 import BuildRoundedIcon from "@mui/icons-material/BuildRounded";
-import HistoryRoundedIcon from "@mui/icons-material/HistoryRounded";
 import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
 import HandymanRoundedIcon from "@mui/icons-material/HandymanRounded";
 import Image from "next/image";
@@ -56,20 +55,19 @@ const MAIN_NAV: NavItem[] = [
 ];
 
 const TOOLS_NAV: NavItem[] = [
-  { href: "/admin", label: "Dashboard", icon: DashboardRoundedIcon, desc: "ภาพรวมระบบ" },
-  { href: "/admin/ipos", label: "IPO Explorer", icon: TableChartRoundedIcon, desc: "ค้นหาและแก้ไขข้อมูล" },
-  { href: "/admin/upcoming", label: "IPO กำลังจะเข้า", icon: EventAvailableRoundedIcon, desc: "ความพร้อมก่อนเข้าตลาด" },
-  { href: "/admin/upcoming/scrape", label: "Scraper", icon: CloudDownloadRoundedIcon, desc: "ดึงข้อมูลจาก SET / SEC" },
-  { href: "/admin/validation", label: "Validation", icon: FactCheckRoundedIcon, desc: "ตรวจคุณภาพข้อมูล" },
-  { href: "/admin/import", label: "Import CSV", icon: UploadFileRoundedIcon, desc: "นำเข้าไฟล์ CSV" },
-  { href: "/admin/builds", label: "Builds", icon: BuildRoundedIcon, desc: "สร้างไฟล์ผลลัพธ์" },
-  { href: "/admin/audit", label: "Audit Log", icon: HistoryRoundedIcon, desc: "ประวัติการใช้งาน" },
+  { href: "/ipo", label: "Dashboard", icon: DashboardRoundedIcon, desc: "ภาพรวมระบบ" },
+  { href: "/ipo/ipos", label: "IPO Explorer", icon: TableChartRoundedIcon, desc: "ค้นหาและแก้ไขข้อมูล" },
+  { href: "/ipo/upcoming", label: "IPO กำลังจะเข้า", icon: EventAvailableRoundedIcon, desc: "ความพร้อมก่อนเข้าตลาด" },
+  { href: "/ipo/upcoming/scrape", label: "Scraper", icon: CloudDownloadRoundedIcon, desc: "ดึงข้อมูลจาก SET / SEC" },
+  { href: "/ipo/validation", label: "Validation", icon: FactCheckRoundedIcon, desc: "ตรวจคุณภาพข้อมูล" },
+  { href: "/ipo/import", label: "Import CSV", icon: UploadFileRoundedIcon, desc: "นำเข้าไฟล์ CSV" },
+  { href: "/ipo/builds", label: "Builds", icon: BuildRoundedIcon, desc: "สร้างไฟล์ผลลัพธ์" },
 ];
 
 const ALL_NAV = [...MAIN_NAV, ...TOOLS_NAV];
 
 function isNavActive(pathname: string, href: string): boolean {
-  if (href === "/" || href === "/admin") return pathname === href;
+  if (href === "/" || href === "/ipo") return pathname === href;
   if (!pathname.startsWith(href)) return false;
   return !ALL_NAV.some(
     (other) =>
@@ -252,7 +250,7 @@ function NavPill({ href, label, active }: { href: string; label: string; active:
 function ToolsDropdown({ pathname }: { pathname: string }) {
   const [open, setOpen] = React.useState(false);
   const anchorRef = React.useRef<HTMLButtonElement>(null);
-  const isToolsActive = pathname.startsWith("/admin");
+  const isToolsActive = pathname.startsWith("/ipo");
 
   return (
     <ClickAwayListener onClickAway={() => setOpen(false)}>
@@ -390,7 +388,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const isHome = pathname === "/";
-  const isAdmin = pathname.startsWith("/admin");
+  const isAdmin = pathname.startsWith("/ipo");
   const [homeReady, setHomeReady] = React.useState(() => homeDataReady);
 
   React.useEffect(() => {

@@ -3,7 +3,6 @@ import { jwtVerify } from "jose";
 import { query } from "./db";
 import type { SessionPayload } from "./session";
 import { COOKIE_NAME } from "./session";
-import { logSecurityEvent } from "./audit";
 
 const encodedKey = new TextEncoder().encode(
   process.env.SESSION_SECRET ?? "",
@@ -44,7 +43,6 @@ export async function requireAdmin(
   const token = match?.[1];
 
   if (!token) {
-    await logUnauthorizedApi(request, "missing_session");
     unauthorized();
   }
 
@@ -57,12 +55,10 @@ export async function requireAdmin(
     const iat = typeof payload.iat === "number" ? payload.iat : 0;
     const now = Math.floor(Date.now() / 1000);
     if (iat > now + 60) {
-      await logUnauthorizedApi(request, "future_iat", session);
       unauthorized("Token issued in the future");
     }
 
     if (!session.sessionId) {
-      await logUnauthorizedApi(request, "missing_session_id", session);
       unauthorized("Session not found");
     }
 
@@ -78,16 +74,13 @@ export async function requireAdmin(
           [session.sessionId],
         );
         if (rows.length === 0) {
-          await logUnauthorizedApi(request, "session_not_found", session);
           unauthorized("Session not found");
         }
         if (rows.length > 0) {
           if (rows[0].revoked_at != null) {
-            await logUnauthorizedApi(request, "session_revoked", session);
             unauthorized("Session has been revoked");
           }
           if (rows[0].is_active === false) {
-            await logUnauthorizedApi(request, "account_deactivated", session);
             unauthorized("Account is deactivated");
           }
         }
@@ -95,7 +88,6 @@ export async function requireAdmin(
         // Re-throw 401/403 Response thrown by unauthorized()
         if (err instanceof Response) throw err;
         if (!isMissingSessionInfrastructureError(err)) {
-          await logUnauthorizedApi(request, "session_validation_failed", session);
           unauthorized("Unable to validate session");
         }
         // admin_sessions table may not exist yet — skip DB check
@@ -105,7 +97,6 @@ export async function requireAdmin(
     return session;
   } catch (err) {
     if (err instanceof Response) throw err;
-    await logUnauthorizedApi(request, "invalid_or_expired_session");
     unauthorized("Invalid or expired session");
   }
 }
@@ -122,14 +113,6 @@ export async function requireRole(
   const role = session.role ?? "admin";
 
   if (!allowedRoles.includes(role)) {
-    await logSecurityEvent({
-      userId: session.userId,
-      email: session.email ?? undefined,
-      request,
-      action: "permission_denied",
-      reason: `role '${role}' not in [${allowedRoles.join(", ")}]`,
-      role,
-    });
     forbidden(`Role '${role}' ไม่มีสิทธิ์ / is not allowed for this operation`);
   }
 
@@ -157,7 +140,6 @@ export async function requirePermission(
       [role, permission],
     );
     if (rows.length === 0) {
-      await logPermissionDenied(request, session, permission, role);
       forbidden(`ไม่มีสิทธิ์ '${permission}' สำหรับ role '${role}' / Permission '${permission}' not granted to role '${role}'`);
     }
   } catch (err) {
@@ -174,41 +156,9 @@ export async function requirePermission(
       readonly: ["ipos:read", "validation:read", "builds:read"],
     };
     if (!(defaults[role] ?? []).includes(permission)) {
-      await logPermissionDenied(request, session, permission, role);
       forbidden(`ไม่มีสิทธิ์ '${permission}' สำหรับ role '${role}' / Permission '${permission}' not granted to role '${role}'`);
     }
   }
 
   return session;
-}
-
-async function logPermissionDenied(
-  request: Request,
-  session: SessionPayload,
-  permission: string,
-  role: string,
-): Promise<void> {
-  await logSecurityEvent({
-    userId: session.userId,
-    email: session.email ?? undefined,
-    request,
-    action: "permission_denied",
-    reason: `permission '${permission}' not granted to role '${role}'`,
-    role,
-    permission,
-  });
-}
-
-async function logUnauthorizedApi(
-  request: Request,
-  reason: string,
-  session?: Partial<SessionPayload>,
-): Promise<void> {
-  await logSecurityEvent({
-    userId: session?.userId ?? null,
-    email: session?.email ?? undefined,
-    request,
-    action: "unauthorized_api",
-    reason,
-  });
 }

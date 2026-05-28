@@ -442,9 +442,6 @@ async function runClockUnitTest() {
 
 async function collectImplementationEvidence() {
   const runnerSource = await fs.readFile(path.join(repoRoot, "src", "lib", "scraper-runner.ts"), "utf8");
-  const scrapeRouteSource = await fs.readFile(path.join(repoRoot, "src", "app", "api", "admin", "upcoming", "scrape", "route.ts"), "utf8");
-  const scheduleRouteSource = await fs.readFile(path.join(repoRoot, "src", "app", "api", "admin", "upcoming", "schedule", "route.ts"), "utf8");
-  const auditSource = await fs.readFile(path.join(repoRoot, "src", "lib", "audit.ts"), "utf8");
   const schedulerSource = await fs.readFile(path.join(repoRoot, "src", "lib", "scraper-scheduler.ts"), "utf8");
   const clockSource = await fs.readFile(path.join(repoRoot, "src", "lib", "scraper-scheduler-clock.ts"), "utf8");
   const clockTestSource = await fs.readFile(path.join(repoRoot, "src", "lib", "scraper-scheduler-clock.test.ts"), "utf8");
@@ -453,9 +450,6 @@ async function collectImplementationEvidence() {
   const concurrentOk = runnerSource.includes("pg_try_advisory_xact_lock")
     && runnerSource.includes("ScrapeAlreadyRunningError")
     && runnerSource.includes("WHERE status = 'running'");
-  const auditOk = auditSource.includes("logScraperEvent")
-    && scheduleRouteSource.includes("scraper_schedule_updated")
-    && scrapeRouteSource.includes("scraper_triggered");
   const timeoutOk = runnerSource.includes("SCRAPER_RUN_TIMEOUT_MS")
     && runnerSource.includes("child.kill")
     && runnerSource.includes("status = 'failed'");
@@ -474,13 +468,6 @@ async function collectImplementationEvidence() {
     concurrentOk ? "พบ advisory lock + running check ใน triggerScrape()" : "ไม่ครบ",
     concurrentOk ? "PASS" : "FAIL",
     "src/lib/scraper-runner.ts",
-  );
-  addImplementationCheck(
-    "Audit logging",
-    "Schedule update และ scraper trigger ต้องเขียน audit_logs",
-    auditOk ? "พบ logScraperEvent ใน schedule/scrape route" : "ไม่ครบ",
-    auditOk ? "PASS" : "FAIL",
-    "src/lib/audit.ts, route.ts",
   );
   addImplementationCheck(
     "Timeout handling",
@@ -506,9 +493,6 @@ async function collectImplementationEvidence() {
 
   if (!concurrentOk) {
     addFinding("DEF-001", "High", "Concurrent protection ยังไม่ครบ", "source scan ไม่พบ advisory lock/running check ครบ", "เพิ่ม guard ใน triggerScrape()");
-  }
-  if (!auditOk) {
-    addFinding("DEF-002", "High", "Audit logging ยังไม่ครบ", "source scan ไม่พบ logScraperEvent ครบ", "เขียน audit ตอน schedule update และ scraper trigger สำเร็จ");
   }
   if (!timeoutOk) {
     addFinding("DEF-003", "Medium", "Timeout handling ยังไม่ครบ", "source scan ไม่พบ timeout kill/fail update ครบ", "เพิ่ม timeout kill และ failed persistence");
@@ -961,23 +945,6 @@ async function main() {
     "ตั้ง QA_RUN_CACHE_PROBE=1 ในรอบ benchmark แยกหากต้องการวัดสองรอบ",
   );
 
-  const auditRows = await q(
-    "Check scraper/schedule audit logs",
-    `SELECT entity, action, entity_id, created_at
-     FROM audit_logs
-     WHERE created_at >= $1
-       AND (
-         entity ILIKE '%scraper%' OR entity ILIKE '%schedule%' OR
-         action ILIKE '%scraper%' OR action ILIKE '%schedule%'
-       )
-     ORDER BY created_at DESC`,
-    [suiteStartedAt.toISOString()],
-  );
-  const scheduleAudit = auditRows.some((row) => /schedule/i.test(`${row.entity} ${row.action}`));
-  const triggerAudit = auditRows.some((row) => /scraper/i.test(`${row.entity} ${row.action}`));
-  addCase("TC-036", "Audit", "audit log schedule update", "มี audit event", scheduleAudit ? "found" : "not found", scheduleAudit ? "PASS" : "FAIL");
-  addCase("TC-037", "Audit", "audit log scraper trigger", "มี audit event", triggerAudit ? "found" : "not found", triggerAudit ? "PASS" : "FAIL");
-
   const clockTest = await runClockUnitTest();
   addCase(
     "TC-038",
@@ -1173,7 +1140,7 @@ function buildSummarySheet(workbook) {
   styleTitle(
     sheet,
     "รายงานทดสอบ Upcoming IPO Scraper / Schedule วันละ 2 รอบ",
-    "ครอบคลุม schedule editor, manual trigger, concurrent guard, audit log, timeout handling, scheduler clock seam และ RBAC",
+    "ครอบคลุม schedule editor, manual trigger, concurrent guard, timeout handling, scheduler clock seam และ RBAC",
     9,
   );
   sheet.freezePanes.freezeRows(2);

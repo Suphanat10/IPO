@@ -39,7 +39,7 @@ Order matters — apply them sequentially:
 
 | File | What it does |
 | --- | --- |
-| `0001_init_schema.sql` | Core tables: `ipos`, `ipo_financials`, `validation_*`, `build_runs`, `build_logs`, `audit_logs`, `sync_jobs`, `fa_normalizations`, `sectors` |
+| `0001_init_schema.sql` | Core tables: `ipos`, `ipo_financials`, `validation_*`, `build_runs`, `build_logs`, `sync_jobs`, `fa_normalizations`, `sectors` |
 | `0002_views.sql` | `v_ipo_completeness`, `v_dashboard_stats`, `v_upcoming_ipos` |
 | `0003_validation_rules_seed.sql` | Seeds validation rules + defines `run_validations()` |
 | `0004_rls.sql` | Row-Level Security policies (admins only) |

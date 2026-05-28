@@ -1,14 +1,8 @@
 import { getSession } from "@/lib/session";
-import { logSecurityEvent } from "@/lib/audit";
 
-export async function GET(request: Request) {
+export async function GET() {
   const session = await getSession();
   if (!session) {
-    await logSecurityEvent({
-      request,
-      action: "unauthorized_api",
-      reason: "session_missing_or_invalid",
-    });
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
   return Response.json({

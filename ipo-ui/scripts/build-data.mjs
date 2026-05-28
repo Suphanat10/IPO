@@ -145,8 +145,7 @@ function enrichBaseRow(r) {
   };
   const above = (price) => {
     const p = toNum(price);
-    if (p == null || ipo == null) return null;
-    return p > ipo ? 1 : 0;
+    return p != null && ipo != null && p > ipo ? 1 : 0;
   };
   const open = toNum(r.open_d1);
   const high = toNum(r.high_d1);
@@ -215,7 +214,7 @@ function cleanPersonToken(s) {
     const re = new RegExp(`^${p.replace(/\./g, "\\.")}\\s*`);
     if (re.test(s)) { s = s.replace(re, "").trim(); break; }
   }
-  return s.replace(/\s+/g, " ");
+  return s;
 }
 // Mirrors Python: replace "/" → "," then split on ",".
 function splitMulti(raw) {

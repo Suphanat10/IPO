@@ -6,7 +6,7 @@ import ComparePerformance from "../sections/ComparePerformance";
 
 export default function ExplorePage() {
   return (
-    <Stack spacing={3}>
+    <Stack spacing={0}>
       <HistoricalPerformance />
       <ComparePerformance />
     </Stack>

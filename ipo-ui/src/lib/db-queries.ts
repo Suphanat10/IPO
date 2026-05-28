@@ -2,7 +2,6 @@ import { query } from "@/lib/db";
 import { toDateOnly } from "@/lib/date-format";
 import { applyEffectiveIpoStatus, syncMaturedIpoStatuses } from "@/lib/ipo-status";
 import type {
-  AuditLogRow,
   BuildLog,
   BuildRun,
   CompletenessRow,
@@ -251,14 +250,6 @@ export async function getBuildRun(id: number): Promise<{
 export async function getSyncJobs(limit = 50): Promise<SyncJobRow[]> {
   const rows = await query<SyncJobRow>(
     "SELECT * FROM sync_jobs ORDER BY ran_at DESC LIMIT $1",
-    [limit],
-  );
-  return serializeDbRows(rows);
-}
-
-export async function getAuditLogs(limit = 100): Promise<AuditLogRow[]> {
-  const rows = await query<AuditLogRow>(
-    "SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT $1",
     [limit],
   );
   return serializeDbRows(rows);

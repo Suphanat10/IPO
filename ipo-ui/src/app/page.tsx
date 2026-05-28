@@ -169,7 +169,7 @@ export default function Page() {
         </Box>
         <Box sx={{ minWidth: 0 }}>
           <Typography sx={{ fontSize: { xs: 18, md: 22 }, fontWeight: 800, color: c.ink, lineHeight: 1.2 }}>
-            IPO กำลังจะเข้า
+            หุ้นที่กำลังจะ IPO เข้าตลาด
           </Typography>
           <Typography sx={{ mt: 0.5, color: c.muted, fontSize: { xs: 13, md: 14 }, lineHeight: 1.5 }}>
             คิวเข้าเทรดเร็วๆ นี้ พร้อมคะแนนแนะนำจาก FA, Underwriter และปัจจัยพื้นฐาน

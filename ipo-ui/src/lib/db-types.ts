@@ -156,13 +156,3 @@ export interface SyncJobRow {
   error_message: string | null;
   ran_at: string;
 }
-
-export interface AuditLogRow {
-  id: number;
-  user_id: string | null;
-  entity: string;
-  entity_id: string;
-  action: string;
-  diff: Record<string, unknown> | null;
-  created_at: string;
-}

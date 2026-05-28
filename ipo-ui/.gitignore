@@ -40,3 +40,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# QA report outputs
+/outputs/
+# Scraper CSV outputs
+/scripts/output/
+# Local test scripts
+/scripts/test-set-api.mjs

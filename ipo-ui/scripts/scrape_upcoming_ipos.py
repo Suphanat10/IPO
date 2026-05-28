@@ -32,6 +32,9 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 import pandas as pd
 from curl_cffi import requests as cffi_requests
@@ -51,6 +54,7 @@ SEC_RETRY_SLEEP_SECONDS = float(os.environ.get("SCRAPER_SEC_RETRY_SLEEP_SECONDS"
 SEC_DOC_CACHE_ENABLED = os.environ.get("SCRAPER_SEC_DOC_CACHE", "1").lower() not in ("0", "false", "no")
 SEC_DOC_CACHE_TTL_SECONDS = int(float(os.environ.get("SCRAPER_SEC_DOC_CACHE_TTL_HOURS", "168")) * 3600)
 SEC_PAGE_CACHE_TTL_SECONDS = int(float(os.environ.get("SCRAPER_SEC_PAGE_CACHE_TTL_MINUTES", "30")) * 60)
+SEC_DOC_PARSER_VERSION = "financials-v4"
 
 # ---------------------------------------------------------------------------
 # Config
@@ -99,6 +103,11 @@ SEC_HEADERS = {
     "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7",
     "Content-Type": "application/x-www-form-urlencoded",
 }
+
+SEC_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+)
 
 _log_handlers: list[logging.Handler] = [logging.StreamHandler()]
 if LOG_FILE:
@@ -155,7 +164,7 @@ def _save_json_cache(path: Path, data: dict) -> None:
 
 
 def _sec_doc_cache_path(trans_id: str, urls: dict[str, str | None]) -> Path:
-    version_parts = [trans_id]
+    version_parts = [SEC_DOC_PARSER_VERSION, trans_id]
     version_parts.extend(f"{name}={url or ''}" for name, url in sorted(urls.items()))
     return SEC_DOC_CACHE_DIR / f"{trans_id}_{_json_cache_key(*version_parts)}.json"
 
@@ -188,29 +197,96 @@ def _sec_page_cache_path(trans_id: str) -> Path:
     return SEC_PAGE_CACHE_DIR / f"{trans_id}.html"
 
 
+def _sec_request_headers() -> dict[str, str]:
+    headers = dict(SEC_HEADERS)
+    headers["User-Agent"] = SEC_USER_AGENT
+    return headers
+
+
+def _is_sec_rejection_text(text: str | None) -> bool:
+    if not text:
+        return False
+    lowered = text.lower()
+    return "request rejected" in lowered or "requested url was rejected" in lowered
+
+
+def _is_valid_sec_page_html(text: str | None) -> bool:
+    if not text or _is_sec_rejection_text(text):
+        return False
+    return "RadGrid1" in text or "IPOSGetFile.aspx" in text or "ContentPlaceHolder1_RadGrid1" in text
+
+
+def _decode_http_content(content: bytes, headers: dict | None = None) -> str:
+    charset = "utf-8"
+    content_type = ""
+    if headers:
+        content_type = str(headers.get("Content-Type") or headers.get("content-type") or "")
+    charset_match = re.search(r"charset=([\w\-]+)", content_type, re.IGNORECASE)
+    if charset_match:
+        charset = charset_match.group(1)
+    return content.decode(charset, errors="replace")
+
+
+def _urllib_get(url: str, timeout: int) -> SimpleNamespace | None:
+    """Fallback SEC fetcher. Some SEC endpoints reset/reject curl_cffi but accept urllib."""
+    try:
+        req = Request(url, headers=_sec_request_headers())
+        with urlopen(req, timeout=timeout) as resp:
+            content = resp.read()
+            headers = dict(resp.headers.items())
+            return SimpleNamespace(
+                status_code=resp.getcode(),
+                content=content,
+                text=_decode_http_content(content, headers),
+                headers=headers,
+                url=resp.geturl(),
+            )
+    except (HTTPError, URLError, TimeoutError, OSError) as e:
+        log.debug("urllib SEC fetch failed for %s: %s", url, e)
+        return None
+
+
+def _response_looks_rejected(resp) -> bool:
+    content = getattr(resp, "content", b"") or b""
+    if len(content) > 4096 or content[:2] == b"PK":
+        return False
+    text = getattr(resp, "text", None)
+    if text is None:
+        text = content.decode("utf-8", errors="ignore")
+    return _is_sec_rejection_text(text)
+
+
 def _fetch_sec_page_html(session: cffi_requests.Session, filing_url: str) -> str | None:
     trans_id = extract_trans_id(filing_url)
     cache_path = _sec_page_cache_path(trans_id) if trans_id else None
 
     if cache_path:
         cached = _load_text_cache(cache_path, SEC_PAGE_CACHE_TTL_SECONDS)
-        if cached:
+        if cached and _is_valid_sec_page_html(cached):
             log.info("  SEC page: cache hit for TransID=%s", trans_id)
             return cached
+        if cached:
+            log.warning("  SEC page: ignoring invalid cache for TransID=%s", trans_id)
 
     try:
-        resp = session.get(filing_url, timeout=SEC_PAGE_TIMEOUT)
-        if resp.status_code == 200:
+        resp = session.get(filing_url, headers=_sec_request_headers(), timeout=SEC_PAGE_TIMEOUT)
+        if resp.status_code == 200 and _is_valid_sec_page_html(resp.text):
             if cache_path:
                 _save_text_cache(cache_path, resp.text)
             return resp.text
-        log.warning("SEC page %s returned %d", filing_url, resp.status_code)
+        log.warning("SEC page %s returned invalid response (%s)", filing_url, getattr(resp, "status_code", "?"))
     except Exception as e:
         log.warning("SEC page fetch failed for %s: %s", filing_url, e)
 
+    fallback = _urllib_get(filing_url, SEC_PAGE_TIMEOUT)
+    if fallback and fallback.status_code == 200 and _is_valid_sec_page_html(fallback.text):
+        if cache_path:
+            _save_text_cache(cache_path, fallback.text)
+        return fallback.text
+
     if cache_path:
         stale = _load_text_cache(cache_path, SEC_PAGE_CACHE_TTL_SECONDS, allow_stale=True)
-        if stale:
+        if stale and _is_valid_sec_page_html(stale):
             log.warning("  SEC page: using stale cache for TransID=%s", trans_id)
             return stale
 
@@ -369,9 +445,15 @@ def _fetch_sec_document(
 ) -> cffi_requests.Response | None:
     """Fetch a SEC filing document via direct IPOSGetFile URL, with retries."""
     for attempt in range(retries + 1):
+        fallback = _urllib_get(url, timeout)
+        if fallback and fallback.status_code == 200 and not _response_looks_rejected(fallback):
+            return fallback
+
         try:
-            resp = session.get(url, timeout=timeout, allow_redirects=True)
-            return resp
+            resp = session.get(url, headers=_sec_request_headers(), timeout=timeout, allow_redirects=True)
+            if resp.status_code == 200 and not _response_looks_rejected(resp):
+                return resp
+            log.warning("  SEC fetch returned invalid response (%s): %s", getattr(resp, "status_code", "?"), url)
         except Exception as e:
             if attempt < retries:
                 log.warning("  SEC fetch attempt %d failed: %s — retrying...", attempt + 1, e)
@@ -394,18 +476,35 @@ def _extract_docx_text(content: bytes) -> str:
         return ""
 
 
-def _extract_xlsx_from_zip(content: bytes) -> bytes | None:
-    """Extract the first .xlsx file from a ZIP archive."""
+def _is_xlsx_workbook(content: bytes) -> bool:
+    """Check if bytes are an OOXML Excel workbook, even when the filename is .xls."""
+    if not content or len(content) < 4 or content[:2] != b"PK":
+        return False
     try:
         zf = zipfile.ZipFile(io.BytesIO(content))
-        xlsx_files = [f for f in zf.namelist() if f.lower().endswith(".xlsx")]
-        if not xlsx_files:
-            zf.close()
-            return None
-        data = zf.read(xlsx_files[0])
-        log.info("  Extracted Excel: %s (%d bytes)", xlsx_files[0], len(data))
+        names = set(zf.namelist())
         zf.close()
-        return data
+        return "xl/workbook.xml" in names
+    except Exception:
+        return False
+
+
+def _extract_xlsx_from_zip(content: bytes) -> bytes | None:
+    """Extract the first Excel workbook from a ZIP archive."""
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(content))
+        excel_files = [
+            f for f in zf.namelist()
+            if f.lower().endswith((".xlsx", ".xlsm", ".xls"))
+        ]
+        for filename in excel_files:
+            data = zf.read(filename)
+            if _is_xlsx_workbook(data):
+                log.info("  Extracted Excel: %s (%d bytes)", filename, len(data))
+                zf.close()
+                return data
+        zf.close()
+        return None
     except Exception as e:
         log.warning("  ZIP extraction failed: %s", e)
         return None
@@ -432,7 +531,7 @@ def _is_zip_with_xlsx(content: bytes) -> bool:
         return False
     try:
         zf = zipfile.ZipFile(io.BytesIO(content))
-        has_xlsx = any(n.lower().endswith(".xlsx") for n in zf.namelist())
+        has_xlsx = any(n.lower().endswith((".xlsx", ".xlsm", ".xls")) for n in zf.namelist())
         zf.close()
         return has_xlsx
     except Exception:
@@ -443,6 +542,56 @@ def _is_zip_with_xlsx(content: bytes) -> bool:
 # SEC document parsers
 # ---------------------------------------------------------------------------
 
+_THAI_NUMBER_TOKEN = r"-?\d[\d\s,]*(?:\s*\.\s*\d+)?"
+
+
+def _normalize_doc_text(text: str) -> str:
+    text = (text or "").replace("\xa0", " ")
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _money_values_in_text(text: str) -> list[float]:
+    values: list[float] = []
+    for match in re.finditer(rf"({_THAI_NUMBER_TOKEN})\s*(ล้านบาท|บาท)", text):
+        raw = match.group(1).replace(" ", "")
+        val = _parse_thai_number(raw)
+        if val is None:
+            continue
+        if match.group(2) == "ล้านบาท":
+            val *= 1_000_000
+        if abs(val) >= 1_000:
+            values.append(val)
+    return values
+
+
+def _first_money_near_keywords(text: str, keywords: tuple[str, ...], window: int = 800) -> float | None:
+    for kw in keywords:
+        idx = text.find(kw)
+        if idx == -1:
+            continue
+        nearby = text[idx:idx + window]
+        values = _money_values_in_text(nearby)
+        if values:
+            return values[0]
+    return None
+
+
+def _first_pct(text: str) -> float | None:
+    patterns = (
+        rf"ร้อยละ\s*({_THAI_NUMBER_TOKEN})",
+        rf"({_THAI_NUMBER_TOKEN})\s*%",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if not match:
+            continue
+        val = _parse_thai_pct(match.group(1).replace(" ", ""))
+        if val is not None and 0 <= val <= 100:
+            return val
+    return None
+
+
 def _parse_subscription_report(text: str) -> dict:
     """
     Parse SUBSCRIPTION_AND_UNDERWRITION report for:
@@ -450,51 +599,23 @@ def _parse_subscription_report(text: str) -> dict:
       - total_expense (ค่าใช้จ่ายในการเสนอขาย)
     """
     result: dict = {}
-    text = re.sub(r"\s+", " ", text)
+    text = _normalize_doc_text(text)
 
-    # gross_proceeds: look for amount near keywords
-    # DOCX may have spaces in numbers: "1 ,234 ,567" and placeholders "[•]"
-    for kw in ("ประมาณการจำนวนเงิน", "จำนวนเงินค่าหุ้น", "มูลค่าการเสนอขาย",
-               "มูลค่ารวมของหุ้น"):
-        idx = text.find(kw)
-        if idx == -1:
-            continue
-        nearby = text[idx:idx + 500]
-        # Must be followed by บาท or ล้านบาท to be a money amount
-        amounts = re.findall(r"([\d][\d\s,]*[\d](?:\s*\.\s*\d+)?)\s*(?:ล้านบาท|บาท)", nearby)
-        for raw in amounts:
-            val = _parse_thai_number(raw.replace(" ", ""))
-            if val and val > 1_000:
-                # Check if it's in millions
-                raw_pos = nearby.find(raw)
-                suffix_area = nearby[raw_pos:raw_pos + len(raw) + 30]
-                if "ล้านบาท" in suffix_area:
-                    val *= 1_000_000
-                result["gross_proceeds"] = val
-                log.info("    gross_proceeds = %s", val)
-                break
-        if "gross_proceeds" in result:
-            break
+    gross = _first_money_near_keywords(
+        text,
+        ("ประมาณการจำนวนเงิน", "จำนวนเงินค่าหุ้น", "มูลค่าการเสนอขาย", "มูลค่ารวมของหุ้น"),
+    )
+    if gross is not None:
+        result["gross_proceeds"] = gross
+        log.info("    gross_proceeds = %s", gross)
 
-    # total_expense — require บาท suffix to avoid false positives
-    for kw in ("รวมค่าใช้จ่ายทั้งสิ้น", "รวมค่าใช้จ่าย", "ประมาณการค่าใช้จ่าย"):
-        idx = text.find(kw)
-        if idx == -1:
-            continue
-        nearby = text[idx:idx + 500]
-        amounts = re.findall(r"([\d][\d\s,]*[\d](?:\s*\.\s*\d+)?)\s*(?:ล้านบาท|บาท)", nearby)
-        for raw in amounts:
-            val = _parse_thai_number(raw.replace(" ", ""))
-            if val and val > 1_000:
-                raw_pos = nearby.find(raw)
-                suffix_area = nearby[raw_pos:raw_pos + len(raw) + 30]
-                if "ล้านบาท" in suffix_area:
-                    val *= 1_000_000
-                result["total_expense"] = val
-                log.info("    total_expense = %s", val)
-                break
-        if "total_expense" in result:
-            break
+    expense = _first_money_near_keywords(
+        text,
+        ("รวมค่าใช้จ่าย", "รวมค่าใช้จ่ายทั้งสิ้น", "ประมาณการค่าใช้จ่าย"),
+    )
+    if expense is not None:
+        result["total_expense"] = expense
+        log.info("    total_expense = %s", expense)
 
     return result
 
@@ -507,7 +628,7 @@ def _parse_securities_offering(text: str) -> dict:
       - existing_shares_pct (สัดส่วนการขายหุ้นเดิม)
     """
     result: dict = {}
-    text = re.sub(r"\s+", " ", text)
+    text = _normalize_doc_text(text)
 
     # offered_shares
     for kw in ("ลักษณะสำคัญของหลักทรัพย์ที่เสนอขาย", "รายละเอียดของหลักทรัพย์ที่เสนอขาย",
@@ -517,7 +638,7 @@ def _parse_securities_offering(text: str) -> dict:
             continue
         nearby = text[idx:idx + 1000]
         # DOCX numbers may have spaces: "180 ,000,000 หุ้น"
-        shares_match = re.search(r"([\d][\d ,]+[\d])\s*หุ้น", nearby)
+        shares_match = re.search(rf"({_THAI_NUMBER_TOKEN})\s*หุ้น", nearby)
         if shares_match:
             raw = shares_match.group(1).replace(" ", "")
             val = _parse_thai_number(raw)
@@ -526,37 +647,42 @@ def _parse_securities_offering(text: str) -> dict:
                 log.info("    offered_shares = %s", int(val))
                 break
 
-    # offered_ratio_pct — DOCX numbers may have spaces: "27 . 27"
+    # offered_ratio_pct — search near the securities-offering detail first.
+    ratio_text = text
+    for section_kw in ("ลักษณะสำคัญของหลักทรัพย์ที่เสนอขาย", "รายละเอียดของหลักทรัพย์ที่เสนอขาย"):
+        section_idx = text.find(section_kw)
+        if section_idx != -1:
+            ratio_text = text[section_idx:section_idx + 1500]
+            break
     for kw in ("คิดเป็นร้อยละ", "ร้อยละ"):
-        idx = text.find(kw)
+        idx = ratio_text.find(kw)
         if idx == -1:
             continue
-        nearby = text[idx:idx + 200]
-        # Handle "ร้อยละ 27 . 27" or "ร้อยละ 27.27"
-        pct_match = re.search(r"ร้อยละ\s*([\d\s,.]+\d)", nearby)
-        if pct_match:
-            raw = pct_match.group(1).replace(" ", "")
-            val = _parse_thai_pct(raw)
-            if val and 0 < val <= 100:
-                result["offered_ratio_pct"] = val
-                log.info("    offered_ratio_pct = %s%%", val)
-                break
+        nearby = ratio_text[idx:idx + 300]
+        val = _first_pct(nearby)
+        if val is not None and 0 < val <= 100:
+            result["offered_ratio_pct"] = val
+            log.info("    offered_ratio_pct = %s%%", val)
+            break
 
     # existing_shares_pct
-    for kw in ("หุ้นเดิม", "หุ้นสามัญเดิม", "ผู้ถือหุ้นเดิม.*เสนอขาย"):
+    existing_context_found = False
+    for kw in ("หุ้นเดิม", "หุ้นสามัญเดิม", "ผู้ถือหุ้นเดิม"):
         matches = list(re.finditer(kw, text))
         for m in matches:
-            nearby = text[m.start():m.start() + 300]
-            pct_match = re.search(r"ร้อยละ\s*([\d,.]+)|([\d,.]+)\s*%", nearby)
-            if pct_match:
-                raw = pct_match.group(1) or pct_match.group(2)
-                val = _parse_thai_pct(raw)
-                if val and 0 < val <= 100:
-                    result["existing_shares_pct"] = val
-                    log.info("    existing_shares_pct = %s%%", val)
-                    break
+            nearby = text[m.start():m.start() + 500]
+            if "เสนอขาย" in nearby or "จำหน่าย" in nearby:
+                existing_context_found = True
+            val = _first_pct(nearby)
+            if val is not None and 0 < val <= 100:
+                result["existing_shares_pct"] = val
+                log.info("    existing_shares_pct = %s%%", val)
+                break
         if "existing_shares_pct" in result:
             break
+    if "existing_shares_pct" not in result and result.get("offered_shares") and not existing_context_found:
+        result["existing_shares_pct"] = 0.0
+        log.info("    existing_shares_pct = 0.0%%")
 
     return result
 
@@ -571,7 +697,7 @@ def _parse_shareholder_info(text: str) -> dict:
     where the last number is the post-IPO percentage.
     """
     result: dict = {}
-    text = re.sub(r"\s+", " ", text)
+    text = _normalize_doc_text(text)
 
     # Find the shareholder section
     for kw in ("รายชื่อผู้ถือหุ้น", "โครงสร้างการถือหุ้น", "ผู้ถือหุ้นรายใหญ่"):
@@ -584,8 +710,8 @@ def _parse_shareholder_info(text: str) -> dict:
         # Pattern: "รวมกลุ่ม... shares pct shares pct" — we want the last pct (post-IPO)
         group_match = re.search(
             r"รวมกลุ่ม[^\d]*"
-            r"[\d,\s]+\s+([\d]+\s*\.\s*[\d]+)\s+"  # pct_before
-            r"[\d,\s]+\s+([\d]+\s*\.\s*[\d]+)",     # pct_after (post-IPO)
+            rf"[\d,\s]+\s+({_THAI_NUMBER_TOKEN})\s+"  # pct_before
+            rf"[\d,\s]+\s+({_THAI_NUMBER_TOKEN})",     # pct_after (post-IPO)
             nearby,
         )
         if group_match:
@@ -596,10 +722,29 @@ def _parse_shareholder_info(text: str) -> dict:
                 log.info("    executive_total_pct = %s%% (from รวมกลุ่ม)", val)
                 break
 
-        # Strategy 2: find explicit % symbols near ผู้บริหาร or กรรมการ
+        # Strategy 2: shareholder tables often list shares/pct before and after IPO.
+        # Use the first real shareholder row when there is no explicit "รวมกลุ่ม" row.
+        row_pattern = re.compile(
+            rf"(?P<name>(?:\d+\.\s*)?[^\d]{{3,120}}?)\s+"
+            rf"(?P<shares_before>[\d,\s]+|-)\s+(?P<pct_before>{_THAI_NUMBER_TOKEN})\s+"
+            rf"(?P<shares_after>[\d,\s]+|-)\s+(?P<pct_after>{_THAI_NUMBER_TOKEN})"
+        )
+        for row_match in row_pattern.finditer(nearby):
+            name = re.sub(r"\s+", " ", row_match.group("name")).strip()
+            if any(skip in name for skip in ("เสนอขาย", "ประชาชนทั่วไป", "IPO", "รวม")):
+                continue
+            val = _parse_thai_pct(row_match.group("pct_after").replace(" ", ""))
+            if val is not None and 0 < val < 100:
+                result["executive_total_pct"] = val
+                log.info("    executive_total_pct = %s%% (from shareholder row)", val)
+                break
+        if "executive_total_pct" in result:
+            break
+
+        # Strategy 3: find explicit % symbols near ผู้บริหาร or กรรมการ
         exec_match = re.search(
             r"(?:ผู้บริหาร|กรรมการ|ผู้ถือหุ้นรายใหญ่).*?"
-            r"(\d+\s*\.\s*\d+)\s*%",
+            rf"({_THAI_NUMBER_TOKEN})\s*%",
             nearby,
         )
         if exec_match:
@@ -610,12 +755,12 @@ def _parse_shareholder_info(text: str) -> dict:
                 log.info("    executive_total_pct = %s%% (from %%)", val)
                 break
 
-        # Strategy 3: find "รวม" row with numeric percentages (no % symbol)
+        # Strategy 4: find "รวม" row with numeric percentages (no % symbol)
         # In DOCX tables, data appears as: "รวม... 480,000,000 100.00 480,000,000 72.73"
         total_match = re.search(
             r"รวม(?:ทั้งหมด|กลุ่ม|ผู้ถือหุ้น)[^\d]*"
-            r"([\d][\d,\s]*[\d])\s+([\d]+\s*\.\s*[\d]+)\s+"
-            r"([\d][\d,\s]*[\d])\s+([\d]+\s*\.\s*[\d]+)",
+            rf"([\d][\d,\s]*[\d])\s+({_THAI_NUMBER_TOKEN})\s+"
+            rf"([\d][\d,\s]*[\d])\s+({_THAI_NUMBER_TOKEN})",
             nearby,
         )
         if total_match:
@@ -641,6 +786,11 @@ def _parse_financial_excel(content: bytes) -> dict:
         log.warning("openpyxl not installed — skipping Excel financial parsing")
         return {}
 
+    if content[:2] == b"PK" and not _is_xlsx_workbook(content):
+        nested = _extract_xlsx_from_zip(content)
+        if nested:
+            return _parse_financial_excel(nested)
+
     result: dict = {}
     try:
         wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True, read_only=True)
@@ -651,30 +801,28 @@ def _parse_financial_excel(content: bytes) -> dict:
     sheet_names = wb.sheetnames
     log.info("    Excel sheets: %s", sheet_names)
 
-    # --- Balance Sheet (may be split across multiple sheets) ---
-    bs_sheets: list = []
-    for name in sheet_names:
-        if re.search(r"BS|balance|งบแสดงฐานะ|ฐานะการเงิน|สินทรัพย์|หนี้สิน", name, re.IGNORECASE):
-            bs_sheets.append(wb[name])
-    if not bs_sheets and sheet_names:
+    def _pick_sheet(exact_name: str, fallback_pattern: str):
         for name in sheet_names:
-            if not re.search(r"PL|IS|CF|CE|SH|กำไร|กระแส|เปลี่ยนแปลง", name, re.IGNORECASE):
-                bs_sheets.append(wb[name])
-                break
+            if name.strip().lower() == exact_name.lower():
+                return wb[name]
+        for name in sheet_names:
+            if re.search(fallback_pattern, name, re.IGNORECASE):
+                return wb[name]
+        return None
 
+    bs_sheets = [wb[name] for name in sheet_names if name.strip().lower() == "bs"]
+    if not bs_sheets:
+        bs_sheets = [
+            wb[name] for name in sheet_names
+            if re.search(r"^BS\b|balance|งบแสดงฐานะ|ฐานะการเงิน|สินทรัพย์|หนี้สิน", name, re.IGNORECASE)
+        ]
     for bs_sheet in bs_sheets:
-        bs_data = _parse_bs_sheet(bs_sheet)
-        for k, v in bs_data.items():
-            if k not in result:
-                result[k] = v
+        for key, value in _parse_bs_sheet(bs_sheet).items():
+            if key not in result:
+                result[key] = value
 
     # --- Profit & Loss ---
-    pl_sheet = None
-    for name in sheet_names:
-        if re.search(r"PL|IS|CI|profit|loss|income|งบกำไร|กำไรขาดทุน|รายได้|เบ็ดเสร็จ", name, re.IGNORECASE):
-            pl_sheet = wb[name]
-            break
-
+    pl_sheet = _pick_sheet("PL", r"IS|CI|profit|loss|income|งบกำไร|กำไรขาดทุน|รายได้|เบ็ดเสร็จ")
     if pl_sheet:
         result.update(_parse_pl_sheet(pl_sheet))
 
@@ -682,7 +830,23 @@ def _parse_financial_excel(content: bytes) -> dict:
     return result
 
 
-def _find_value_in_sheet(sheet, keyword_patterns: list[str], col_offset: int = 1) -> float | None:
+def _sheet_label_matches(cell_text: str, keyword_patterns: list[str], regex: bool = False) -> bool:
+    cell_text = re.sub(r"\s+", " ", cell_text).strip()
+    for pattern in keyword_patterns:
+        if regex:
+            if re.search(pattern, cell_text, re.IGNORECASE):
+                return True
+        elif pattern in cell_text:
+            return True
+    return False
+
+
+def _find_value_in_sheet(
+    sheet,
+    keyword_patterns: list[str],
+    col_offset: int = 1,
+    regex: bool = False,
+) -> float | None:
     """
     Search a sheet for a row matching any keyword pattern,
     then return the numeric value from the specified column offset.
@@ -693,23 +857,25 @@ def _find_value_in_sheet(sheet, keyword_patterns: list[str], col_offset: int = 1
             if cell.value is None:
                 continue
             cell_text = str(cell.value).strip()
-            for pattern in keyword_patterns:
-                if pattern in cell_text:
-                    # Look for numeric values in the same row, to the right
-                    for offset in range(1, 6):
-                        try:
-                            val_cell = row[cell.column - 1 + offset]
-                            if val_cell.value is not None:
-                                val = _parse_thai_number(str(val_cell.value))
-                                if val is not None:
-                                    return val
-                        except IndexError:
-                            break
-                    break
+            if _sheet_label_matches(cell_text, keyword_patterns, regex=regex):
+                # Look for numeric values in the same row, to the right
+                for offset in range(col_offset, 8):
+                    try:
+                        val_cell = row[cell.column - 1 + offset]
+                        if val_cell.value is not None:
+                            val = _parse_thai_number(str(val_cell.value))
+                            if val is not None:
+                                return val
+                    except IndexError:
+                        break
     return None
 
 
-def _find_two_period_values(sheet, keyword_patterns: list[str]) -> tuple[float | None, float | None]:
+def _find_two_period_values(
+    sheet,
+    keyword_patterns: list[str],
+    regex: bool = False,
+) -> tuple[float | None, float | None]:
     """
     Find a row matching keywords and return (latest, previous) period values.
     Assumes latest period is in an earlier column (left = latest).
@@ -719,23 +885,21 @@ def _find_two_period_values(sheet, keyword_patterns: list[str]) -> tuple[float |
             if cell.value is None:
                 continue
             cell_text = str(cell.value).strip()
-            for pattern in keyword_patterns:
-                if pattern in cell_text:
-                    values: list[float] = []
-                    for offset in range(1, 8):
-                        try:
-                            val_cell = row[cell.column - 1 + offset]
-                            if val_cell.value is not None:
-                                val = _parse_thai_number(str(val_cell.value))
-                                if val is not None:
-                                    values.append(val)
-                        except IndexError:
-                            break
-                    if len(values) >= 2:
-                        return values[0], values[1]
-                    elif len(values) == 1:
-                        return values[0], None
-                    break
+            if _sheet_label_matches(cell_text, keyword_patterns, regex=regex):
+                values: list[float] = []
+                for offset in range(1, 10):
+                    try:
+                        val_cell = row[cell.column - 1 + offset]
+                        if val_cell.value is not None:
+                            val = _parse_thai_number(str(val_cell.value))
+                            if val is not None:
+                                values.append(val)
+                    except IndexError:
+                        break
+                if len(values) >= 2:
+                    return values[0], values[1]
+                elif len(values) == 1:
+                    return values[0], None
     return None, None
 
 
@@ -743,22 +907,22 @@ def _parse_bs_sheet(sheet) -> dict:
     """Extract BS data: total_assets, total_liabilities, total_equity."""
     result: dict = {}
 
-    val = _find_value_in_sheet(sheet, ["รวมสินทรัพย์", "สินทรัพย์รวม", "Total assets", "Total Assets"])
-    if val:
+    val = _find_value_in_sheet(sheet, [r"^รวมสินทรัพย์$", r"^สินทรัพย์รวม$", r"^Total assets$"], regex=True)
+    if val is not None:
         result["total_assets"] = val
         log.info("    total_assets = %s", val)
 
-    val = _find_value_in_sheet(sheet, ["รวมหนี้สิน", "หนี้สินรวม", "Total liabilities", "Total Liabilities"])
-    if val:
+    val = _find_value_in_sheet(sheet, [r"^รวมหนี้สิน$", r"^หนี้สินรวม$", r"^Total liabilities$"], regex=True)
+    if val is not None:
         result["total_liabilities"] = val
         log.info("    total_liabilities = %s", val)
 
     val = _find_value_in_sheet(sheet, [
-        "รวมส่วนของผู้ถือหุ้น", "รวมส่วนของเจ้าของ",
-        "ส่วนของผู้ถือหุ้นรวม", "Total equity", "Total Equity",
-        "Total shareholders", "Total Shareholders",
-    ])
-    if val:
+        r"^รวมส่วนของผู้ถือหุ้น.*$", r"^รวมส่วนของเจ้าของ.*$",
+        r"^ส่วนของผู้ถือหุ้นรวม$", r"^Total equity$",
+        r"^Total shareholders.*equity$", r"^Total shareholders.*$",
+    ], regex=True)
+    if val is not None:
         result["total_equity"] = val
         log.info("    total_equity = %s", val)
 
@@ -770,8 +934,8 @@ def _parse_pl_sheet(sheet) -> dict:
     result: dict = {}
 
     rev_latest, rev_prev = _find_two_period_values(sheet, [
-        "รวมรายได้", "รายได้รวม", "Total revenue", "Total Revenue", "Total income",
-    ])
+        r"^รวมรายได้$", r"^รายได้รวม$", r"^Total revenue$", r"^Total income$",
+    ], regex=True)
     if rev_latest is not None:
         result["revenue_latest"] = rev_latest
         log.info("    revenue_latest = %s", rev_latest)
@@ -780,9 +944,9 @@ def _parse_pl_sheet(sheet) -> dict:
         log.info("    revenue_prev = %s", rev_prev)
 
     ni_latest, ni_prev = _find_two_period_values(sheet, [
-        "กำไรสำหรับปี", "กำไรสุทธิ", "กำไร(ขาดทุน)สำหรับปี",
-        "Net income", "Net Income", "Profit for the year", "Net profit",
-    ])
+        r"^กำไรสุทธิสำหรับปี$", r"^กำไรสำหรับปี$", r"^กำไร\(ขาดทุน\)สำหรับปี$",
+        r"^Net income$", r"^Profit for the year$", r"^Net profit$",
+    ], regex=True)
     if ni_latest is not None:
         result["net_income_latest"] = ni_latest
         log.info("    net_income_latest = %s", ni_latest)
@@ -898,14 +1062,14 @@ def _scrape_sec_documents(
     sub_url = _find_section_url(sections, "การจอง การจำหน่าย และการจัดสรร", "การจอง")
     sec_url = _find_section_url(sections, "รายละเอียดของหลักทรัพย์ที่เสนอขาย", "รายละเอียดของหลักทรัพย์")
     struct_url = _find_section_url(sections, "โครงสร้างและการดำเนินงาน")
-    if not struct_url:
-        struct_url = _find_section_url(sections, "รายละเอียดเกี่ยวกับกรรมการ", "เอกสารแนบ 1")
+    appendix_url = _find_section_url(sections, "รายละเอียดเกี่ยวกับกรรมการ", "เอกสารแนบ 1")
     fs_url = _find_latest_annual_fs_url(sections)
 
     selected_urls = {
         "subscription": sub_url,
         "securities": sec_url,
         "structure": struct_url,
+        "appendix_executive": appendix_url,
         "financial_statements": fs_url,
     }
     cache_path = _sec_doc_cache_path(trans_id, selected_urls)
@@ -931,17 +1095,21 @@ def _scrape_sec_documents(
         text_tasks.append(("securities", sec_url, _parse_securities_offering))
     if struct_url:
         text_tasks.append(("structure", struct_url, _parse_shareholder_info))
+    if appendix_url and appendix_url != struct_url:
+        text_tasks.append(("appendix_executive", appendix_url, _parse_shareholder_info))
 
     def _fetch_text_doc(name: str, url: str, parser: callable) -> tuple[str, dict]:
         log.info("  SEC docs: fetching %s...", name)
         text = _fetch_and_extract_text(url)
-        return name, parser(text) if text else {}
+        if not text:
+            return f"{name}__fetch_failed", {}
+        return name, parser(text)
 
     def _fetch_fs_doc() -> tuple[str, dict]:
         log.info("  SEC docs: fetching Financial Statements...")
         resp = _fetch_sec_document(session, fs_url, timeout=SEC_FS_TIMEOUT, retries=SEC_DOC_RETRIES)
         if not resp or resp.status_code != 200:
-            return "fs", {}
+            return "fs__fetch_failed", {}
         log.info("  SEC docs: FS size = %d bytes", len(resp.content))
         if resp.content[:2] == b"PK":
             xlsx_data = _extract_xlsx_from_zip(resp.content)
@@ -959,16 +1127,26 @@ def _scrape_sec_documents(
         if fs_url:
             futures.append(pool.submit(_fetch_fs_doc))
 
+        fetch_failed = False
         for fut in as_completed(futures):
             try:
                 name, parsed = fut.result()
-                result.update(parsed)
+                if name.endswith("__fetch_failed"):
+                    fetch_failed = True
+                    continue
+                for key, value in parsed.items():
+                    if value is not None and key not in result:
+                        result[key] = value
             except Exception as e:
+                fetch_failed = True
                 log.warning("  SEC docs: parallel fetch failed: %s", e)
 
     if result:
         log.info("  SEC docs: extracted %d fields from documents", len(result))
-        _save_json_cache(cache_path, result)
+        if fetch_failed:
+            log.warning("  SEC docs: not caching partial result for TransID=%s", trans_id)
+        else:
+            _save_json_cache(cache_path, result)
     else:
         log.info("  SEC docs: no financial data extracted from documents")
 
@@ -1407,12 +1585,20 @@ def main():
             "gross_proceeds": fin.get("gross_proceeds"),
             "total_expense": fin.get("total_expense"),
             "offered_ratio": fin.get("offered_ratio_pct"),
+            "offered_ratio_pct": fin.get("offered_ratio_pct"),
             "existing_pct": fin.get("existing_shares_pct"),
+            "existing_shares_pct": fin.get("existing_shares_pct"),
             "exec_pct": fin.get("executive_total_pct"),
+            "executive_total_pct": fin.get("executive_total_pct"),
             "total_assets": fin.get("total_assets"),
+            "total_liabilities": fin.get("total_liabilities"),
             "total_equity": fin.get("total_equity"),
             "revenue": fin.get("revenue_latest"),
+            "revenue_latest": fin.get("revenue_latest"),
+            "revenue_prev": fin.get("revenue_prev"),
             "net_income": fin.get("net_income_latest"),
+            "net_income_latest": fin.get("net_income_latest"),
+            "net_income_prev": fin.get("net_income_prev"),
             "biz_desc": (r["ipo"].get("business_description") or "")[:60],
             "fa_person": ", ".join(r["ipo"].get("fa_persons") or ["-"])[:30],
             "lead_uw": ", ".join(r["ipo"].get("lead_uw") or ["-"])[:30],
