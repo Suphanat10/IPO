@@ -149,13 +149,6 @@ export default async function AdminDashboard() {
             </Link>
           </>
         }
-        chips={
-          <>
-            <AdminStatusPill label={`${stats.error_count} ข้อผิดพลาด / errors`} tone={stats.error_count > 0 ? "danger" : "neutral"} />
-            <AdminStatusPill label={`${stats.warning_count} คำเตือน / warnings`} tone={stats.warning_count > 0 ? "warning" : "neutral"} />
-            <AdminStatusPill label={`${stats.info_count} ข้อมูล / info`} tone="info" />
-          </>
-        }
       />
 
       <Grid container spacing={2}>

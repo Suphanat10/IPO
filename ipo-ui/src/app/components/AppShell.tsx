@@ -21,7 +21,6 @@ import {
   useMediaQuery,
   useTheme,
   ClickAwayListener,
-  alpha,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import CloseIcon from "@mui/icons-material/Close";
@@ -221,7 +220,7 @@ function HomeLoadingScreen() {
 
 function NavPill({ href, label, active }: { href: string; label: string; active: boolean }) {
   return (
-    <Link href={href} style={{ textDecoration: "none" }}>
+    <Link href={href} style={{ display: "block", textDecoration: "none" }}>
       <Box
         sx={{
           px: 2,
@@ -249,7 +248,7 @@ function NavPill({ href, label, active }: { href: string; label: string; active:
 
 function ToolsDropdown({ pathname }: { pathname: string }) {
   const [open, setOpen] = React.useState(false);
-  const anchorRef = React.useRef<HTMLButtonElement>(null);
+  const [anchorEl, setAnchorEl] = React.useState<HTMLButtonElement | null>(null);
   const isToolsActive = pathname.startsWith("/ipo");
 
   return (
@@ -257,7 +256,7 @@ function ToolsDropdown({ pathname }: { pathname: string }) {
       <Box sx={{ position: "relative" }}>
         <Box
           component="button"
-          ref={anchorRef}
+          ref={setAnchorEl}
           onClick={() => setOpen((p) => !p)}
           sx={{
             display: "inline-flex",
@@ -295,7 +294,7 @@ function ToolsDropdown({ pathname }: { pathname: string }) {
 
         <Popper
           open={open}
-          anchorEl={anchorRef.current}
+          anchorEl={anchorEl}
           placement="bottom-end"
           transition
           sx={{ zIndex: 1300 }}
@@ -323,7 +322,7 @@ function ToolsDropdown({ pathname }: { pathname: string }) {
                       key={item.href}
                       href={item.href}
                       onClick={() => setOpen(false)}
-                      style={{ textDecoration: "none" }}
+                      style={{ display: "block", textDecoration: "none" }}
                     >
                       <Box
                         sx={{
@@ -581,7 +580,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <ListItem key={item.href} disablePadding>
                 <Link
                   href={item.href}
-                  style={{ textDecoration: "none", width: "100%" }}
+                  style={{ display: "block", textDecoration: "none", width: "100%" }}
                   onClick={() => setDrawerOpen(false)}
                 >
                   <ListItemButton
@@ -634,7 +633,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <ListItem key={item.href} disablePadding>
                 <Link
                   href={item.href}
-                  style={{ textDecoration: "none", width: "100%" }}
+                  style={{ display: "block", textDecoration: "none", width: "100%" }}
                   onClick={() => setDrawerOpen(false)}
                 >
                   <ListItemButton

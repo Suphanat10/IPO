@@ -12,7 +12,6 @@ import {
   AdminPageHeader,
   AdminPanel,
   AdminStatCard,
-  AdminStatusPill,
   adminColors,
 } from "../../components/AdminPrimitives";
 import MissingFieldsDonutChart, { type MissingFieldChartStat } from "./MissingFieldsDonutChart";
@@ -139,14 +138,6 @@ export default async function ValidationPage() {
         eyebrow="ตรวจคุณภาพ / Validation"
         title="คิวตรวจคุณภาพข้อมูล / Data quality queue"
         description="ตรวจรายการ validation ที่ยังไม่แก้ และ IPO ที่ยังขาดข้อมูลก่อนเผยแพร่ผลวิเคราะห์ / Review unresolved validation results and records with missing fields before publishing analysis output."
-        chips={
-          <>
-            <AdminStatusPill label={`${counts.error} ข้อผิดพลาด / Errors`} tone={counts.error > 0 ? "danger" : "neutral"} />
-            <AdminStatusPill label={`${counts.warning} คำเตือน / Warnings`} tone={counts.warning > 0 ? "warning" : "neutral"} />
-            <AdminStatusPill label={`${counts.info} ข้อมูล / Info`} tone="info" />
-            <AdminStatusPill label={`${missing.length} ไม่ครบ / Incomplete`} tone={missing.length > 0 ? "warning" : "success"} />
-          </>
-        }
       />
 
       <Stack spacing={1.5}>

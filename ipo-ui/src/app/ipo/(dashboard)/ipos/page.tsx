@@ -1,7 +1,7 @@
 ﻿export const dynamic = "force-dynamic";
 
 import * as React from "react";
-import { Button, Chip, Stack } from "@mui/material";
+import { Button, Stack } from "@mui/material";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import Link from "next/link";
 import IposTable from "./IposTable";
@@ -9,7 +9,6 @@ import { getIposList } from "@/lib/admin/queries";
 import {
   AdminPageHeader,
   AdminPanel,
-  AdminStatusPill,
 } from "../../components/AdminPrimitives";
 
 export default async function IposPage(props: {
@@ -35,7 +34,7 @@ export default async function IposPage(props: {
     dateTo: params.dateTo,
     limit: 100,
   });
-  const { rows, total } = r;
+  const { rows } = r;
   const industries = r.industries ?? [];
   const sectors = r.sectors ?? [];
 
@@ -51,14 +50,6 @@ export default async function IposPage(props: {
               เพิ่ม IPO / New IPO
             </Button>
           </Link>
-        }
-        chips={
-          <>
-            <AdminStatusPill label={`${total} rows`} tone="neutral" />
-            {params.status ? <Chip label={`สถานะ / status: ${params.status}`} size="small" color="primary" /> : null}
-            {params.q ? <Chip label={`ค้นหา / search: ${params.q}`} size="small" /> : null}
-            {params.min ? <Chip label={`ความครบถ้วนขั้นต่ำ / min: ${params.min}%`} size="small" /> : null}
-          </>
         }
       />
 

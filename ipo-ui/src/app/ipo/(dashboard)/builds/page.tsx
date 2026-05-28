@@ -9,7 +9,6 @@ import {
   AdminPageHeader,
   AdminPanel,
   AdminStatCard,
-  AdminStatusPill,
 } from "../../components/AdminPrimitives";
 import BuildButton from "./BuildButton";
 import BuildRunsGrid from "./BuildRunsGrid";
@@ -40,14 +39,6 @@ export default async function BuildsPage() {
         title="สายงานสร้างไฟล์ / Build pipeline"
         description="ระบบจะสร้าง ipo.json อัตโนมัติทุกครั้งที่ข้อมูลเปลี่ยน (หน่วงเวลา 3 วินาที) / Automatically builds ipo.json when data changes with a 3-second debounce. กด Build ตอนนี้เพื่อสั่งสร้างไฟล์เอง / Use Build now to run it manually."
         actions={<BuildButton />}
-        chips={
-          <>
-            <AdminStatusPill label={`${summary.success} สำเร็จ / success`} tone="success" />
-            <AdminStatusPill label={`${summary.failed} ล้มเหลว / failed`} tone={summary.failed > 0 ? "danger" : "neutral"} />
-            <AdminStatusPill label={`${summary.running} กำลังทำงาน / running`} tone="warning" />
-            <AdminStatusPill label="ฐานข้อมูล -> ipo.json / DB -> ipo.json" tone="info" />
-          </>
-        }
       />
 
       <Grid container spacing={2}>

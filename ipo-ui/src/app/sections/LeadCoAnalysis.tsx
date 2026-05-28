@@ -4,8 +4,6 @@ import * as React from "react";
 import {
   Autocomplete,
   Box,
-  Checkbox,
-  FormControlLabel,
   Link,
   Stack,
   Tab,
@@ -97,7 +95,6 @@ function StatsRow({ row, title }: { row: SummaryRow | LeadCoSummaryRow; title: s
 
 export default function LeadCoAnalysis() {
   const { leadCo, setLeadCo } = useAnalysis();
-  const [showDetail, setShowDetail] = React.useState(false);
   const [tab, setTab] = React.useState(0);
   const dbOpts = useDropdownOptions();
   const leadUnderwriterOptions = React.useMemo(
@@ -137,8 +134,6 @@ export default function LeadCoAnalysis() {
     () => generateLeadCoConclusion(lead, co),
     [lead, co],
   );
-
-  const matchCount = (leadRow ? 1 : 0) + (pairRow ? 1 : 0);
 
   return (
     <SectionCard
@@ -225,16 +220,6 @@ export default function LeadCoAnalysis() {
                 )}
               />
             </LabeledField>
-            <FormControlLabel
-              sx={{ pl: { md: "196px" } }}
-              control={
-                <Checkbox
-                  checked={showDetail}
-                  onChange={(e) => setShowDetail(e.target.checked)}
-                />
-              }
-              label="Show IPO detail"
-            />
           </Stack>
         </Box>
 
@@ -300,21 +285,6 @@ export default function LeadCoAnalysis() {
                   title={`Lead & Co - ${pairRow.name} x ${pairRow.co}`}
                   row={pairRow}
                 />
-              ) : null}
-              {showDetail ? (
-                <Box
-                  sx={{
-                    borderRadius: 2,
-                    border: "1px dashed",
-                    borderColor: "divider",
-                    p: 2,
-                    bgcolor: "#fafbfd",
-                  }}
-                >
-                  <Typography variant="body2" color="text.secondary">
-                    ดูรายการ IPO ที่ตรงกันใน Tab "Lead-Co Matched" ด้านบน
-                  </Typography>
-                </Box>
               ) : null}
             </Stack>
           ) : (

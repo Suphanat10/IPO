@@ -210,7 +210,7 @@ function runAutoCheck(rows: Record<string, string>[], type: CsvType): AutoCheckR
         missingFields: [],
         completeness: 0,
         autoStatus: null,
-        warnings: [type === "fa_norm" ? "fa_companies ว่าง" : "symbol ว่าง"],
+        warnings: [type === "fa_norm" ? "fa_companies ว่าง / empty" : "symbol ว่าง / empty"],
         hasData: false,
       });
       continue;
@@ -299,7 +299,7 @@ function runAutoCheck(rows: Record<string, string>[], type: CsvType): AutoCheckR
       } else if (hasPrice && !hasClose) {
         autoStatus = "upcoming";
       } else if (!hasPrice && !hasClose) {
-        autoStatus = "upcoming (ข้อมูลน้อย)";
+        autoStatus = "upcoming (ข้อมูลน้อย / sparse)";
       } else {
         autoStatus = "listed";
       }
@@ -464,29 +464,29 @@ function AutoCheckPanel({ item }: { item: ImportItem }) {
       >
         <WarningAmberRoundedIcon fontSize="small" sx={{ color: adminColors.amber }} />
         <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-          Auto-check: {item.fileName}
+          ตรวจสอบอัตโนมัติ / Auto-check: {item.fileName}
         </Typography>
         <SchemaChip type={item.schema.type} />
         <Chip
           size="small"
-          label={`ครบ ${ac.completeRows}`}
+          label={`ครบ / Complete ${ac.completeRows}`}
           sx={{ bgcolor: "#dcfce7", color: "#047857", fontWeight: 700, height: 22, fontSize: 11 }}
         />
         <Chip
           size="small"
-          label={`ไม่ครบ ${ac.incompleteRows}`}
+          label={`ไม่ครบ / Incomplete ${ac.incompleteRows}`}
           sx={{ bgcolor: "#fef3c7", color: "#92400e", fontWeight: 700, height: 22, fontSize: 11 }}
         />
         {ac.emptyRows > 0 && (
           <Chip
             size="small"
-            label={`ว่าง ${ac.emptyRows}`}
+            label={`ว่าง / Empty ${ac.emptyRows}`}
             sx={{ bgcolor: "#ffe4e6", color: "#be123c", fontWeight: 700, height: 22, fontSize: 11 }}
           />
         )}
         <Chip
           size="small"
-          label={`เฉลี่ย ${pct(ac.avgCompleteness)}`}
+          label={`เฉลี่ย / Avg ${pct(ac.avgCompleteness)}`}
           sx={{ fontWeight: 700, height: 22, fontSize: 11 }}
         />
       </Stack>
@@ -510,7 +510,7 @@ function AutoCheckPanel({ item }: { item: ImportItem }) {
               />
             </IconButton>
             <Typography variant="body2" sx={{ fontWeight: 700 }}>
-              Field coverage (% ของ row ที่มีข้อมูล)
+              ความครอบคลุมของแต่ละฟิลด์ (% แถวที่มีข้อมูล) / Field coverage (% of rows with data)
             </Typography>
           </Stack>
           <Collapse in={showCoverage}>
@@ -536,7 +536,7 @@ function AutoCheckPanel({ item }: { item: ImportItem }) {
               />
             </IconButton>
             <Typography variant="body2" sx={{ fontWeight: 700 }}>
-              ตรวจสอบรายแถว ({ac.rows.filter((r) => r.missingFields.length > 0 || r.warnings.length > 0).length} มีปัญหา)
+              ตรวจสอบรายแถว / Per-row check ({ac.rows.filter((r) => r.missingFields.length > 0 || r.warnings.length > 0).length} มีปัญหา / issues)
             </Typography>
           </Stack>
           <Collapse in={showRows}>
@@ -545,11 +545,11 @@ function AutoCheckPanel({ item }: { item: ImportItem }) {
                 <TableHead>
                   <TableRow>
                     <TableCell>#</TableCell>
-                    <TableCell>Symbol</TableCell>
-                    <TableCell>Completeness</TableCell>
-                    {item.schema.type === "base" && <TableCell>Auto Status</TableCell>}
-                    <TableCell>Missing</TableCell>
-                    <TableCell>Warnings</TableCell>
+                    <TableCell>สัญลักษณ์ / Symbol</TableCell>
+                    <TableCell>ความครบถ้วน / Completeness</TableCell>
+                    {item.schema.type === "base" && <TableCell>สถานะอัตโนมัติ / Auto Status</TableCell>}
+                    <TableCell>ข้อมูลที่ขาด / Missing</TableCell>
+                    <TableCell>คำเตือน / Warnings</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -612,7 +612,7 @@ function AutoCheckPanel({ item }: { item: ImportItem }) {
             </TableContainer>
             {ac.rows.filter((r) => r.missingFields.length === 0 && r.warnings.length === 0 && r.hasData).length > 0 && (
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", p: 1.5 }}>
-                ซ่อน {ac.rows.filter((r) => r.missingFields.length === 0 && r.warnings.length === 0 && r.hasData).length} แถวที่ข้อมูลครบ
+                ซ่อน {ac.rows.filter((r) => r.missingFields.length === 0 && r.warnings.length === 0 && r.hasData).length} แถวที่ข้อมูลครบ / Hidden {ac.rows.filter((r) => r.missingFields.length === 0 && r.warnings.length === 0 && r.hasData).length} complete rows
               </Typography>
             )}
           </Collapse>
@@ -643,12 +643,12 @@ function RawDataPreview({ item }: { item: ImportItem }) {
         }}
       >
         <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-          ข้อมูลดิบ: {item.fileName}
+          ข้อมูลดิบ / Raw data: {item.fileName}
         </Typography>
         <Chip size="small" label={`${item.rows.length} rows × ${item.schema.headers.length} cols`} />
         <Box sx={{ flex: 1 }} />
         <Button size="small" onClick={() => setExpanded(!expanded)}>
-          {expanded ? "ย่อ" : `แสดงเพิ่ม (${Math.min(100, item.rows.length)} rows)`}
+          {expanded ? "ย่อ / Collapse" : `แสดงเพิ่ม / Show more (${Math.min(100, item.rows.length)} rows)`}
         </Button>
       </Stack>
       <TableContainer sx={{ maxHeight: 420 }}>
@@ -732,7 +732,7 @@ function RawDataPreview({ item }: { item: ImportItem }) {
       {item.rows.length > displayRows.length && (
         <Box sx={{ p: 1.5, textAlign: "center", borderTop: "1px solid", borderColor: "divider" }}>
           <Typography variant="caption" color="text.secondary">
-            แสดง {displayRows.length} จาก {item.rows.length} แถว
+            แสดง {displayRows.length} จาก {item.rows.length} แถว / Showing {displayRows.length} of {item.rows.length} rows
           </Typography>
         </Box>
       )}
@@ -796,7 +796,7 @@ export default function ImportClient() {
 
     reset();
     if (files.length === 0) {
-      setError("ไม่พบไฟล์ CSV ที่รองรับ");
+      setError("ไม่พบไฟล์ CSV ที่รองรับ / No supported CSV files found");
       return;
     }
 
@@ -808,7 +808,7 @@ export default function ImportClient() {
         const text = await file.text();
         const rows = parseCSV(text);
         if (rows.length === 0) {
-          parseErrors.push(`${file.name}: CSV ว่างหรือ parse ไม่ได้`);
+          parseErrors.push(`${file.name}: CSV ว่างหรือ parse ไม่ได้ / empty or unparseable CSV`);
           continue;
         }
 
@@ -837,7 +837,7 @@ export default function ImportClient() {
 
   async function runPreview() {
     if (items.length === 0) {
-      setError("ยังไม่ได้เลือกไฟล์ CSV");
+      setError("ยังไม่ได้เลือกไฟล์ CSV / No CSV files selected");
       return;
     }
 
@@ -861,7 +861,7 @@ export default function ImportClient() {
       for (const item of queue) {
         const type = item.schema.type;
         if (!isSupportedType(type)) {
-          item.error = "ตรวจไม่พบ schema ของไฟล์นี้";
+          item.error = "ตรวจไม่พบ schema ของไฟล์นี้ / Schema not detected for this file";
           continue;
         }
 
@@ -914,7 +914,7 @@ export default function ImportClient() {
       .filter(({ rows }) => rows.length > 0);
 
     if (work.length === 0) {
-      setError("ยังไม่ได้เลือกแถวที่จะบันทึก");
+      setError("ยังไม่ได้เลือกแถวที่จะบันทึก / No rows selected to commit");
       return;
     }
 
@@ -958,8 +958,8 @@ export default function ImportClient() {
       setCommitted({ inserted, updated, skipped, runs });
       router.refresh();
       await Swal.fire({
-        title: "บันทึกเสร็จสิ้น",
-        html: `Inserted: <b>${inserted}</b> &middot; Updated: <b>${updated}</b> &middot; Skipped: <b>${skipped}</b>`,
+        title: "บันทึกเสร็จสิ้น / Commit completed",
+        html: `เพิ่มใหม่ / Inserted: <b>${inserted}</b> &middot; อัปเดต / Updated: <b>${updated}</b> &middot; ข้าม / Skipped: <b>${skipped}</b>`,
         icon: "success",
         timer: 2500,
         showConfirmButton: false,
@@ -1044,11 +1044,11 @@ export default function ImportClient() {
         <UploadFileRoundedIcon fontSize="large" color={items.length > 0 ? "primary" : "action"} />
         <Typography variant="body1" sx={{ mt: 1, fontWeight: 800 }}>
           {items.length > 0
-            ? `เลือกแล้ว ${items.length} ไฟล์`
-            : "ลาก/วางไฟล์ CSV หลายไฟล์ที่นี่ หรือคลิกเลือก"}
+            ? `เลือกแล้ว ${items.length} ไฟล์ / ${items.length} file(s) selected`
+            : "ลาก/วางไฟล์ CSV ที่นี่ หรือคลิกเลือก / Drag & drop CSV files here, or click to choose"}
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          ระบบจะพรีวิวและบันทึกตามลำดับ base.csv → financials.csv → df_sector.csv
+          ระบบจะพรีวิวและบันทึกตามลำดับ base.csv → financials.csv → df_sector.csv / Files are previewed and committed in order: base.csv → financials.csv → df_sector.csv
         </Typography>
       </Paper>
 
@@ -1064,8 +1064,8 @@ export default function ImportClient() {
 
       {committed ? (
         <Alert severity="success" sx={{ borderRadius: `${ADMIN_RADIUS}px` }}>
-          บันทึกเสร็จ {committed.runs.length} ไฟล์ — inserted: {committed.inserted}, updated: {committed.updated},
-          skipped: {committed.skipped}. Validation ถูก re-run แล้ว
+          บันทึกสำเร็จ / Committed {committed.runs.length} ไฟล์ (files) — เพิ่มใหม่ / inserted: {committed.inserted}, อัปเดต / updated: {committed.updated},
+          ข้าม / skipped: {committed.skipped}. Validation ถูกรันใหม่แล้ว / Validation has been re-run
           <Box component="span" sx={{ display: "block", mt: 0.5 }}>
             {committed.runs.map((run) => `${run.fileName}: sync_jobs #${run.sync_id}`).join(", ")}
           </Box>
@@ -1081,7 +1081,7 @@ export default function ImportClient() {
             sx={{ alignItems: "center", flexWrap: "wrap", gap: 1 }}
           >
             <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-              ไฟล์ที่เลือก
+              ไฟล์ที่เลือก / Selected files
             </Typography>
             <Chip size="small" label={`${items.length} files`} />
             <Box sx={{ flex: 1 }} />
@@ -1091,10 +1091,10 @@ export default function ImportClient() {
               onClick={runPreview}
               startIcon={previewBusy ? <CircularProgress size={16} /> : null}
             >
-              {previewBusy ? "กำลังพรีวิว..." : "Preview batch"}
+              {previewBusy ? "กำลังพรีวิว... / Previewing..." : "พรีวิว / Preview batch"}
             </Button>
             <Button onClick={reset} disabled={previewBusy || commitBusy}>
-              Reset
+              ล้าง / Reset
             </Button>
           </Stack>
           <Stack spacing={1} sx={{ mt: 1.5 }}>
@@ -1124,7 +1124,7 @@ export default function ImportClient() {
                 {item.autoCheck ? (
                   <Chip
                     size="small"
-                    label={`ครบ ${item.autoCheck.completeRows}/${item.autoCheck.totalRows}`}
+                    label={`ครบ / Complete ${item.autoCheck.completeRows}/${item.autoCheck.totalRows}`}
                     sx={{
                       fontWeight: 700,
                       bgcolor: item.autoCheck.completeRows === item.autoCheck.totalRows ? "#dcfce7" : "#fef3c7",
@@ -1134,7 +1134,7 @@ export default function ImportClient() {
                 ) : null}
                 {item.schema.missing.length > 0 ? (
                   <Typography variant="caption" color="warning.main">
-                    missing cols: {item.schema.missing.slice(0, 4).join(", ")}
+                    คอลัมน์ที่ขาด / missing cols: {item.schema.missing.slice(0, 4).join(", ")}
                     {item.schema.missing.length > 4 ? ` +${item.schema.missing.length - 4}` : ""}
                   </Typography>
                 ) : null}
@@ -1163,7 +1163,7 @@ export default function ImportClient() {
             <Tab
               label={
                 <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
-                  <span>Auto-check & ข้อมูลดิบ</span>
+                  <span>ตรวจสอบอัตโนมัติ &amp; ข้อมูลดิบ / Auto-check &amp; Raw data</span>
                   {hasAutoCheck && (
                     <Chip
                       size="small"
@@ -1187,7 +1187,7 @@ export default function ImportClient() {
             <Tab
               label={
                 <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
-                  <span>DB Preview & Commit</span>
+                  <span>พรีวิว DB &amp; บันทึก / DB Preview &amp; Commit</span>
                   {hasPreview && (
                     <Chip
                       size="small"
@@ -1224,7 +1224,7 @@ export default function ImportClient() {
                   sx={{ alignItems: "center", flexWrap: "wrap", gap: 1 }}
                 >
                   <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                    Batch summary
+                    สรุปทั้งหมด / Batch summary
                   </Typography>
                   <Chip size="small" label={`${aggregateSummary.total} rows`} />
                   <Chip size="small" color="success" label={`${aggregateSummary.new} NEW`} sx={WHITE_CHIP_SX} />
@@ -1246,7 +1246,7 @@ export default function ImportClient() {
                       },
                     }}
                   >
-                    {commitBusy ? "กำลังบันทึก..." : `Commit ${selectedCount} row(s)`}
+                    {commitBusy ? "กำลังบันทึก... / Committing..." : `บันทึก / Commit ${selectedCount} row(s)`}
                   </Button>
                 </Stack>
                 {commitBusy ? <LinearProgress sx={{ mt: 1.5 }} /> : null}
@@ -1273,7 +1273,7 @@ export default function ImportClient() {
                       }}
                     >
                       <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                        Preview: {item.fileName}
+                        พรีวิว / Preview: {item.fileName}
                       </Typography>
                       <SchemaChip type={item.preview.type} />
                       <Chip size="small" label={`${item.preview.summary.total} rows`} />
@@ -1292,7 +1292,7 @@ export default function ImportClient() {
                             onChange={(e) => toggleItem(item, e.target.checked)}
                           />
                         }
-                        label={<Typography variant="caption">เลือกทั้งหมดในไฟล์นี้</Typography>}
+                        label={<Typography variant="caption">เลือกทั้งหมดในไฟล์นี้ / Select all in this file</Typography>}
                       />
                     </Stack>
                     <TableContainer sx={{ maxHeight: 520 }}>
@@ -1301,12 +1301,12 @@ export default function ImportClient() {
                           <TableRow>
                             <TableCell padding="checkbox" />
                             <TableCell>#</TableCell>
-                            <TableCell>Symbol</TableCell>
-                            <TableCell>Action</TableCell>
-                            <TableCell>Completeness</TableCell>
-                            <TableCell>Changes</TableCell>
-                            <TableCell>Missing</TableCell>
-                            <TableCell>Errors</TableCell>
+                            <TableCell>สัญลักษณ์ / Symbol</TableCell>
+                            <TableCell>การทำงาน / Action</TableCell>
+                            <TableCell>ความครบถ้วน / Completeness</TableCell>
+                            <TableCell>การเปลี่ยนแปลง / Changes</TableCell>
+                            <TableCell>ข้อมูลที่ขาด / Missing</TableCell>
+                            <TableCell>ข้อผิดพลาด / Errors</TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
@@ -1386,7 +1386,7 @@ export default function ImportClient() {
                                 <TableCell>
                                   {row.missing_fields.length === 0 ? (
                                     <Typography variant="caption" color="success.main">
-                                      ครบ
+                                      ครบ / Complete
                                     </Typography>
                                   ) : (
                                     <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5, maxWidth: 280 }}>
@@ -1424,7 +1424,7 @@ export default function ImportClient() {
                     {item.preview.rows.length > 500 ? (
                       <Box sx={{ p: 1.5, textAlign: "center", borderTop: "1px solid", borderColor: "divider" }}>
                         <Typography variant="caption" color="text.secondary">
-                          แสดง 500 แถวแรกจากทั้งหมด {item.preview.rows.length} (แถวที่เหลือยังถูก commit ตามที่เลือก)
+                          แสดง 500 แถวแรกจากทั้งหมด {item.preview.rows.length} (แถวที่เหลือยังถูกบันทึกตามที่เลือกไว้) / Showing first 500 of {item.preview.rows.length} rows (remaining rows still commit if selected)
                         </Typography>
                       </Box>
                     ) : null}

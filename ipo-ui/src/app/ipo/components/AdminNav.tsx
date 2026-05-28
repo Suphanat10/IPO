@@ -112,7 +112,7 @@ function NavLinkItem({
 
   return (
     <Tooltip title={item.description ? `${item.label} - ${item.description}` : item.label} placement="right" arrow>
-      <Link href={item.href} onClick={onClick} style={{ textDecoration: "none" }}>
+      <Link href={item.href} onClick={onClick} style={{ display: "block", textDecoration: "none", width: "100%" }}>
         <Box
           sx={{
             display: "grid",

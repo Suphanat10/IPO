@@ -3,7 +3,7 @@ import { Button, Stack } from "@mui/material";
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import Link from "next/link";
 import IpoForm from "../IpoForm";
-import { AdminPageHeader, AdminStatusPill } from "../../../components/AdminPrimitives";
+import { AdminPageHeader } from "../../../components/AdminPrimitives";
 
 export default function NewIpoPage() {
   return (
@@ -19,7 +19,6 @@ export default function NewIpoPage() {
             </Button>
           </Link>
         }
-        chips={<AdminStatusPill label="แบบร่าง / Draft" tone="warning" />}
       />
 
       <IpoForm ipo={{ status: "upcoming" }} financials={{}} isNew />
