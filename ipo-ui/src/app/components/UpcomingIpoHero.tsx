@@ -2,6 +2,9 @@
 
 import * as React from "react";
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Box,
   ButtonBase,
   Chip,
@@ -19,12 +22,17 @@ import TrendingDownRoundedIcon from "@mui/icons-material/TrendingDownRounded";
 import RemoveRoundedIcon from "@mui/icons-material/RemoveRounded";
 import ChevronLeftRoundedIcon from "@mui/icons-material/ChevronLeftRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import HistoryRoundedIcon from "@mui/icons-material/HistoryRounded";
 import { fetchEncrypted } from "@/lib/cipher";
 import { formatThaiDate } from "@/lib/date-format";
 import { generateFAConclusion, generateLeadCoConclusion } from "../lib/ipoAnalytics";
+import type { Conclusion } from "../lib/ipoAnalytics";
+import { companies } from "../lib/mockData";
 import { scoreFAFromConclusion, scoreUWFromConclusion, scoreFundamental } from "../lib/scoring";
 import type { DecisionLabel } from "../lib/scoring";
 import type { ComputedFundamental } from "../lib/AnalysisContext";
+import UpcomingHistoricalStats from "./UpcomingHistoricalStats";
 
 export type UpcomingIpo = {
   id: number;
@@ -68,7 +76,66 @@ type Recommendation = {
   faCompany: string | null;
   faPerson: string | null;
   leadUw: string | null;
+  historyGroups: HistoryGroup[];
 };
+
+type HistoryItem = {
+  symbol: string;
+  firstTradeDate: string | null;
+  ipoPrice: number | null;
+  returnD1: number | null;
+  return1M: number | null;
+  return6M: number | null;
+};
+
+type HistoryGroup = {
+  key: string;
+  label: string;
+  mode: string;
+  modeHint: string;
+  sampleSize: number;
+  winRate: number | null;
+  avgD1: number | null;
+  bestD1: number | null;
+  worstD1: number | null;
+  rows: HistoryItem[];
+};
+
+const MODE_LABELS: Record<string, { label: string; hint: string }> = {
+  "Matched 2-factor": {
+    label: "FA Person + Company ตรงกัน",
+    hint: "หุ้นเก่าที่ทั้งชื่อ FA Person และ FA Company ตรงกับดีลนี้",
+  },
+  "Weighted Single Entity": {
+    label: "รวม FA Person ∪ FA Company",
+    hint: "เพราะที่ทั้งคู่ตรงพร้อมกันมีไม่ถึง 5 ดีล — รวมหุ้นที่ตรง Person หรือ Company อย่างใดอย่างหนึ่ง (ลบรายการซ้ำแล้ว)",
+  },
+  "Single Entity": {
+    label: "เอนทิตี้เดียว",
+    hint: "ใช้ FA Person หรือ FA Company อย่างใดอย่างหนึ่งที่กรอกมา",
+  },
+};
+
+function translateMode(modeDesc: string): { label: string; hint: string } {
+  const exact = MODE_LABELS[modeDesc];
+  if (exact) return exact;
+  if (modeDesc.startsWith("Lead+Co:")) {
+    return { label: "Lead + Co ตรงกัน", hint: "หุ้นเก่าที่ทั้ง Lead UW และ Co-UW ตรงกับดีลนี้" };
+  }
+  if (modeDesc.startsWith("Lead:")) {
+    return { label: "Lead UW อย่างเดียว", hint: "หุ้นเก่าที่ Lead UW ตัวเดียวกัน (Lead+Co ตรงกันมีไม่ถึง 5 ดีล)" };
+  }
+  if (modeDesc.startsWith("Co:")) {
+    return { label: "Co-UW อย่างเดียว", hint: "หุ้นเก่าที่ Co-UW ตัวเดียวกัน" };
+  }
+  if (modeDesc.startsWith("FA Person:")) {
+    return { label: "FA Person", hint: "หุ้นเก่าที่ FA Person ตัวเดียวกัน" };
+  }
+  if (modeDesc.startsWith("FA Company:")) {
+    return { label: "FA Company", hint: "หุ้นเก่าที่ FA Company ตัวเดียวกัน" };
+  }
+  return { label: modeDesc, hint: modeDesc };
+}
 
 type FilterKey = "ALL" | DecisionLabel;
 type MarketKey = "ALL" | "SET" | "mai";
@@ -87,6 +154,41 @@ const colors = {
   borderSoft: "#edf2f7",
   cyan: "#38bdf8",
 };
+
+const companyHistoryBySymbol = new Map(companies.map((row) => [row.symbol, row]));
+
+function buildHistoryGroup(key: string, label: string, conclusion: Conclusion): HistoryGroup | null {
+  if (!conclusion.found || conclusion.sampleSize === 0) return null;
+
+  const rows = conclusion.symbols
+    .map((symbol) => {
+      const row = companyHistoryBySymbol.get(symbol);
+      return {
+        symbol,
+        firstTradeDate: row?.first_trade_date ?? null,
+        ipoPrice: row?.ipo_price ?? null,
+        returnD1: row?.return_close_d1 ?? null,
+        return1M: row?.return_1M ?? null,
+        return6M: row?.return_6M ?? null,
+      };
+    })
+    .sort((a, b) => (b.returnD1 ?? -Infinity) - (a.returnD1 ?? -Infinity));
+
+  const { label: modeLabel, hint: modeHint } = translateMode(conclusion.modeDesc);
+
+  return {
+    key,
+    label,
+    mode: modeLabel,
+    modeHint,
+    sampleSize: conclusion.sampleSize,
+    winRate: conclusion.summary?.prob_close_above_ipo ?? null,
+    avgD1: conclusion.summary?.avg_return_close_d1 ?? null,
+    bestD1: conclusion.summary?.best_return_d1 ?? null,
+    worstD1: conclusion.summary?.worst_return_d1 ?? null,
+    rows,
+  };
+}
 
 const filingStatusConfig: Record<string, { label: string; tooltip: string; fg: string; bg: string; border: string }> = {
   Effective: { label: "Filing มีผลบังคับใช้", tooltip: "แบบ Filing ของบริษัทมีผลบังคับใช้", fg: "#166534", bg: "#f0fdf4", border: "#86efac" },
@@ -136,6 +238,7 @@ function computeFundamentalFromFinancials(ipo: UpcomingIpo): ComputedFundamental
 export function buildRecommendation(ipo: UpcomingIpo): Recommendation {
   const reasons: string[] = [];
   const scores: number[] = [];
+  const historyGroups: HistoryGroup[] = [];
   let winRate: number | null = null;
   let avgReturn: number | null = null;
   let tpPct: number | null = null;
@@ -147,6 +250,13 @@ export function buildRecommendation(ipo: UpcomingIpo): Recommendation {
 
   if (faPerson || faCompany) {
     const faConc = generateFAConclusion(faPerson, faCompany);
+    const group = buildHistoryGroup(
+      "fa",
+      faPerson && faCompany ? "FA Person + Company" : faCompany ? "FA Company" : "FA Person",
+      faConc,
+    );
+    if (group) historyGroups.push(group);
+
     if (faConc.found) {
       const bucket = scoreFAFromConclusion(faConc);
       if (bucket) {
@@ -161,6 +271,9 @@ export function buildRecommendation(ipo: UpcomingIpo): Recommendation {
 
   if (lead) {
     const uwConc = generateLeadCoConclusion(lead, co);
+    const group = buildHistoryGroup("lead-uw", "Lead UW", uwConc);
+    if (group) historyGroups.push(group);
+
     if (uwConc.found) {
       const bucket = scoreUWFromConclusion(uwConc);
       if (bucket) {
@@ -200,6 +313,7 @@ export function buildRecommendation(ipo: UpcomingIpo): Recommendation {
     faCompany,
     faPerson,
     leadUw: lead,
+    historyGroups,
   };
 }
 
@@ -304,6 +418,11 @@ function formatMoney(value: number | null, fallback = "รอข้อมูล"
 function formatPercent(value: number | null, fallback = "รอข้อมูล") {
   if (value == null) return fallback;
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function percentColor(value: number | null) {
+  if (value == null) return "#94a3b8";
+  return value >= 0 ? "#166534" : "#991b1b";
 }
 
 function daysLabel(days: number | null) {
@@ -531,7 +650,380 @@ function MetricCell({ label, value, color }: { label: string; value: string; col
   );
 }
 
-function DetailCard({ rec }: { rec: Recommendation }) {
+function HistoryKpiTile({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "pos" | "neg";
+}) {
+  const palette =
+    tone === "pos"
+      ? { fg: "#166534", bg: "#ecfdf5", border: "#bbf7d0" }
+      : tone === "neg"
+      ? { fg: "#991b1b", bg: "#fef2f2", border: "#fecaca" }
+      : { fg: colors.ink, bg: "#ffffff", border: colors.borderSoft };
+  return (
+    <Box
+      sx={{
+        flex: 1,
+        minWidth: 0,
+        px: 1,
+        py: 0.65,
+        borderRadius: 1.5,
+        bgcolor: palette.bg,
+        border: `1px solid ${palette.border}`,
+        textAlign: "center",
+      }}
+    >
+      <Typography sx={{ color: "#64748b", fontSize: 9.5, fontWeight: 800, lineHeight: 1, letterSpacing: 0.3 }}>
+        {label}
+      </Typography>
+      <Typography
+        sx={{
+          mt: 0.4,
+          color: palette.fg,
+          fontSize: 13,
+          fontWeight: 900,
+          lineHeight: 1,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {value}
+      </Typography>
+    </Box>
+  );
+}
+
+function ReturnCell({ value, strong = false }: { value: number | null; strong?: boolean }) {
+  if (value == null) {
+    return (
+      <Typography sx={{ color: "#94a3b8", fontSize: 11, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+        —
+      </Typography>
+    );
+  }
+  const pos = value >= 0;
+  const fg = pos ? "#15803d" : "#b91c1c";
+  const bg = strong ? (pos ? "#ecfdf5" : "#fef2f2") : "transparent";
+  return (
+    <Box
+      sx={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 0.25,
+        px: strong ? 0.6 : 0,
+        py: strong ? 0.15 : 0,
+        borderRadius: 1,
+        bgcolor: bg,
+      }}
+    >
+      <Typography
+        sx={{
+          color: fg,
+          fontSize: strong ? 12 : 11,
+          fontWeight: strong ? 900 : 800,
+          lineHeight: 1.2,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {pos ? "+" : ""}{value.toFixed(1)}%
+      </Typography>
+    </Box>
+  );
+}
+
+const HISTORY_GRID = {
+  xs: "minmax(60px,72px) 1fr 56px 56px",
+  sm: "minmax(64px,76px) 96px 64px 1fr 60px 60px",
+} as const;
+
+function HistoryRow({ row, zebra }: { row: HistoryItem; zebra: boolean }) {
+  return (
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: HISTORY_GRID,
+        gap: 0.75,
+        alignItems: "center",
+        px: 0.85,
+        py: 0.6,
+        borderRadius: 1.25,
+        bgcolor: zebra ? "#f8fafc" : "#ffffff",
+        borderLeft: `3px solid ${row.returnD1 != null ? (row.returnD1 >= 0 ? "#16a34a" : "#dc2626") : "#e2e8f0"}`,
+        transition: "background-color 0.15s ease",
+        "&:hover": { bgcolor: "#eef4fb" },
+      }}
+    >
+      <Typography sx={{ color: colors.ink, fontSize: 12, fontWeight: 900, lineHeight: 1.2, letterSpacing: 0.3 }}>
+        {row.symbol}
+      </Typography>
+      <Typography
+        sx={{
+          display: { xs: "none", sm: "block" },
+          color: "#64748b",
+          fontSize: 10.5,
+          fontWeight: 650,
+          lineHeight: 1.2,
+        }}
+      >
+        {row.firstTradeDate ?? "-"}
+      </Typography>
+      <Typography
+        sx={{
+          display: { xs: "none", sm: "block" },
+          color: colors.muted,
+          fontSize: 10.5,
+          fontWeight: 750,
+          lineHeight: 1.2,
+          fontVariantNumeric: "tabular-nums",
+          textAlign: "right",
+        }}
+      >
+        {row.ipoPrice != null ? `฿${row.ipoPrice.toFixed(2)}` : "-"}
+      </Typography>
+      <Box sx={{ textAlign: "right" }}>
+        <ReturnCell value={row.returnD1} strong />
+      </Box>
+      <Box sx={{ textAlign: "right" }}>
+        <ReturnCell value={row.return1M} />
+      </Box>
+      <Box sx={{ textAlign: "right" }}>
+        <ReturnCell value={row.return6M} />
+      </Box>
+    </Box>
+  );
+}
+
+const HISTORY_PAGE_SIZE = 5;
+
+function HistoryGroups({
+  groups,
+  onExpandedChange,
+}: {
+  groups: HistoryGroup[];
+  onExpandedChange?: (anyExpanded: boolean) => void;
+}) {
+  const [expandedKey, setExpandedKey] = React.useState<string | null>(null);
+  const [pageByKey, setPageByKey] = React.useState<Record<string, number>>({});
+
+  // Reset whenever the group set changes (i.e., user picked a different IPO)
+  React.useEffect(() => {
+    setExpandedKey(null);
+    setPageByKey({});
+    onExpandedChange?.(false);
+  }, [groups, onExpandedChange]);
+
+  if (groups.length === 0) return null;
+
+  return (
+    <Box sx={{ mt: 1.25 }}>
+      <Stack direction="row" spacing={0.75} sx={{ mb: 0.75, alignItems: "center", flexWrap: "wrap", rowGap: 0.5 }}>
+        <HistoryRoundedIcon sx={{ color: "#0369a1", fontSize: 17 }} />
+        <Typography sx={{ color: colors.ink, fontSize: 12, fontWeight: 900, lineHeight: 1.2 }}>
+          ประวัติ IPO ที่ใช้คำนวณ
+        </Typography>
+      </Stack>
+      <Stack spacing={1}>
+        {groups.map((group) => {
+          const tone = { fg: colors.ink, bg: "#f1f5f9", border: "#cbd5e1", accent: "#64748b" };
+
+          const page = pageByKey[group.key] ?? 0;
+          const totalPages = Math.max(1, Math.ceil(group.rows.length / HISTORY_PAGE_SIZE));
+          const safePage = Math.min(page, totalPages - 1);
+          const pageStart = safePage * HISTORY_PAGE_SIZE;
+          const pageRows = group.rows.slice(pageStart, pageStart + HISTORY_PAGE_SIZE);
+          const isExpanded = expandedKey === group.key;
+
+          return (
+            <Accordion
+              key={group.key}
+              disableGutters
+              elevation={0}
+              expanded={isExpanded}
+              onChange={(_, exp) => {
+                const next = exp ? group.key : null;
+                setExpandedKey(next);
+                onExpandedChange?.(next !== null);
+              }}
+              sx={{
+                borderRadius: 2,
+                overflow: "hidden",
+                bgcolor: "#ffffff",
+                border: `1px solid ${tone.border}`,
+                boxShadow: `0 1px 0 ${tone.accent}10`,
+                "&:before": { display: "none" },
+                "&.Mui-expanded": { m: 0 },
+              }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreRoundedIcon sx={{ color: tone.accent, fontSize: 22 }} />}
+                sx={{
+                  minHeight: 56,
+                  px: 1.5,
+                  py: 0.5,
+                  bgcolor: tone.bg,
+                  borderLeft: `3px solid ${tone.accent}`,
+                  "&.Mui-expanded": { minHeight: 56 },
+                  "& .MuiAccordionSummary-content": { my: 0.85, minWidth: 0 },
+                  "& .MuiAccordionSummary-content.Mui-expanded": { my: 0.85 },
+                }}
+              >
+                <Stack spacing={0.75} sx={{ width: "100%", minWidth: 0 }}>
+                  <Stack direction="row" spacing={0.75} sx={{ alignItems: "center", minWidth: 0, flexWrap: "wrap", rowGap: 0.5 }}>
+                    <Typography sx={{ color: tone.fg, fontSize: 13, fontWeight: 900, lineHeight: 1.2 }}>
+                      {group.label}
+                    </Typography>
+                    <Chip
+                      size="small"
+                      label={`${group.sampleSize} ดีล`}
+                      sx={{
+                        height: 20,
+                        borderRadius: 1,
+                        bgcolor: "#ffffff",
+                        border: `1px solid ${tone.border}`,
+                        color: tone.fg,
+                        fontSize: 10,
+                        fontWeight: 900,
+                        "& .MuiChip-label": { px: 0.75 },
+                      }}
+                    />
+                    <Tooltip title={group.modeHint} arrow placement="top">
+                      <Chip
+                        size="small"
+                        label={group.mode}
+                        sx={{
+                          height: 20,
+                          borderRadius: 1,
+                          bgcolor: "rgba(255,255,255,0.7)",
+                          border: `1px dashed ${tone.border}`,
+                          color: colors.muted,
+                          fontSize: 10,
+                          fontWeight: 750,
+                          cursor: "help",
+                          "& .MuiChip-label": { px: 0.75 },
+                        }}
+                      />
+                    </Tooltip>
+                  </Stack>
+                </Stack>
+              </AccordionSummary>
+              <AccordionDetails sx={{ px: 1.25, pt: 0.75, pb: 1.25, bgcolor: "#ffffff" }}>
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: HISTORY_GRID,
+                    gap: 0.75,
+                    px: 0.85,
+                    pb: 0.5,
+                    color: "#64748b",
+                    borderBottom: `1px solid ${colors.borderSoft}`,
+                    mb: 0.6,
+                  }}
+                >
+                  <Typography sx={{ fontSize: 9.5, fontWeight: 850, letterSpacing: 0.5 }}>SYMBOL</Typography>
+                  <Typography sx={{ display: { xs: "none", sm: "block" }, fontSize: 9.5, fontWeight: 850, letterSpacing: 0.5 }}>
+                    FIRST TRADE
+                  </Typography>
+                  <Typography sx={{ display: { xs: "none", sm: "block" }, fontSize: 9.5, fontWeight: 850, letterSpacing: 0.5, textAlign: "right" }}>
+                    IPO
+                  </Typography>
+                  <Typography sx={{ fontSize: 9.5, fontWeight: 850, letterSpacing: 0.5, textAlign: "right" }}>D1</Typography>
+                  <Typography sx={{ fontSize: 9.5, fontWeight: 850, letterSpacing: 0.5, textAlign: "right" }}>1M</Typography>
+                  <Typography sx={{ fontSize: 9.5, fontWeight: 850, letterSpacing: 0.5, textAlign: "right" }}>6M</Typography>
+                </Box>
+                <Stack spacing={0.4}>
+                  {pageRows.map((row, idx) => (
+                    <HistoryRow
+                      key={`${group.key}-${row.symbol}`}
+                      row={row}
+                      zebra={(pageStart + idx) % 2 === 1}
+                    />
+                  ))}
+                </Stack>
+
+                {totalPages > 1 ? (
+                  <Stack
+                    direction="row"
+                    spacing={0.75}
+                    sx={{ mt: 1, alignItems: "center", justifyContent: "space-between" }}
+                  >
+                    <Typography sx={{ fontSize: 10.5, color: "#64748b", fontWeight: 700 }}>
+                      {pageStart + 1}–{Math.min(pageStart + HISTORY_PAGE_SIZE, group.rows.length)} จาก {group.rows.length}
+                    </Typography>
+                    <Stack direction="row" spacing={0.4} sx={{ alignItems: "center" }}>
+                      <IconButton
+                        size="small"
+                        disabled={safePage === 0}
+                        onClick={() => setPageByKey((p) => ({ ...p, [group.key]: safePage - 1 }))}
+                        sx={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 1,
+                          border: `1px solid ${colors.borderSoft}`,
+                          bgcolor: "#ffffff",
+                          "&:hover": { bgcolor: tone.bg },
+                          "&.Mui-disabled": { opacity: 0.4 },
+                        }}
+                      >
+                        <ChevronLeftRoundedIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                      {Array.from({ length: totalPages }, (_, i) => (
+                        <Box
+                          key={i}
+                          onClick={() => setPageByKey((p) => ({ ...p, [group.key]: i }))}
+                          sx={{
+                            width: i === safePage ? 18 : 6,
+                            height: 6,
+                            borderRadius: 999,
+                            bgcolor: i === safePage ? tone.accent : "#cbd5e1",
+                            cursor: "pointer",
+                            transition: "width 0.2s ease, background-color 0.2s ease",
+                            "&:hover": { bgcolor: i === safePage ? tone.accent : "#94a3b8" },
+                          }}
+                        />
+                      ))}
+                      <IconButton
+                        size="small"
+                        disabled={safePage >= totalPages - 1}
+                        onClick={() => setPageByKey((p) => ({ ...p, [group.key]: safePage + 1 }))}
+                        sx={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 1,
+                          border: `1px solid ${colors.borderSoft}`,
+                          bgcolor: "#ffffff",
+                          "&:hover": { bgcolor: tone.bg },
+                          "&.Mui-disabled": { opacity: 0.4 },
+                        }}
+                      >
+                        <ChevronRightRoundedIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Stack>
+                  </Stack>
+                ) : null}
+
+                <Typography sx={{ mt: 0.85, fontSize: 10, color: "#94a3b8", fontStyle: "italic", lineHeight: 1.4 }}>
+                  เรียงตาม D1 จากมากไปน้อย • ค่าใน D1/1M/6M = ผลตอบแทนจริงของหุ้นเก่าตัวนั้น ไม่ใช่ค่าเฉลี่ย
+                </Typography>
+              </AccordionDetails>
+            </Accordion>
+          );
+        })}
+      </Stack>
+    </Box>
+  );
+}
+
+function DetailCard({
+  rec,
+  onHistoryExpandedChange,
+}: {
+  rec: Recommendation;
+  onHistoryExpandedChange?: (expanded: boolean) => void;
+}) {
   const cfg = decisionConfig[rec.decision];
   const { ipo } = rec;
   const scoreNum = Math.round(rec.score * 100);
@@ -624,6 +1116,15 @@ function DetailCard({ rec }: { rec: Recommendation }) {
             </Tooltip>
           ) : null}
         </Stack>
+
+        <HistoryGroups groups={rec.historyGroups} onExpandedChange={onHistoryExpandedChange} />
+
+        <UpcomingHistoricalStats
+          faPersons={ipo.fa_persons ?? []}
+          faCompanies={ipo.fa_companies ?? []}
+          leadUw={ipo.lead_uw ?? []}
+          coUws={ipo.co_uws ?? []}
+        />
 
         <Box
           sx={{
@@ -778,6 +1279,12 @@ export default function UpcomingIpoHero() {
   const [selectedId, setSelectedId] = React.useState<number | null>(initialRecs?.[0]?.ipo.id ?? null);
   const [filter, setFilter] = React.useState<FilterKey>("ALL");
   const [marketFilter, setMarketFilter] = React.useState<MarketKey>("ALL");
+  const [historyExpanded, setHistoryExpanded] = React.useState(false);
+
+  // Collapse the "show all" mode whenever the user picks a different IPO
+  React.useEffect(() => {
+    setHistoryExpanded(false);
+  }, [selectedId]);
 
   React.useEffect(() => {
     if (recs !== null) return;
@@ -955,7 +1462,7 @@ export default function UpcomingIpoHero() {
           <SkeletonLoader />
         ) : recs.length === 1 && selected ? (
           <Box sx={{ p: { xs: 1.25, md: 2 } }}>
-            <DetailCard rec={selected} />
+            <DetailCard rec={selected} onHistoryExpandedChange={setHistoryExpanded} />
           </Box>
         ) : (
           <Box
@@ -973,8 +1480,9 @@ export default function UpcomingIpoHero() {
                 display: { xs: "flex", md: "block" },
                 gap: 1,
                 overflowX: { xs: "auto", md: "visible" },
-                overflowY: { md: "auto" },
-                maxHeight: { md: 464 },
+                overflowY: { md: historyExpanded ? "visible" : "auto" },
+                maxHeight: historyExpanded ? "none" : { md: 464 },
+                transition: "max-height 0.25s ease",
                 pr: { md: 0.5 },
                 pb: { xs: 0.5, md: 0 },
                 "&::-webkit-scrollbar": { width: 4, height: 4 },
@@ -998,7 +1506,7 @@ export default function UpcomingIpoHero() {
 
             <Box sx={{ minWidth: 0 }}>
               {selected ? (
-                <DetailCard rec={selected} />
+                <DetailCard rec={selected} onHistoryExpandedChange={setHistoryExpanded} />
               ) : (
                 <Box sx={{ border: `1px dashed ${colors.border}`, borderRadius: 2, p: 3, color: "#64748b", fontSize: 14, textAlign: "center" }}>
                   เลือก IPO จากรายการ
