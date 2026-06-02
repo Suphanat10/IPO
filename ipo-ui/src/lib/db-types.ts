@@ -1,5 +1,5 @@
 // Minimal type shapes for tables used by admin UI.
-// Regenerate via `supabase gen types typescript` when schema grows.
+// Keep in sync with db/migrations/ when the schema changes.
 
 export type IpoStatus = "upcoming" | "listed" | "cancelled";
 

@@ -55,6 +55,8 @@ IPO/
 │   │   └── page.tsx                 ← main page
 │   └── scripts/
 │       └── build-data.mjs           ← สร้าง ipo.json จาก CSVs
+├── db/
+│   └── migrations/                  ← SQL schema (PostgreSQL มาตรฐาน, รันด้วย psql)
 └── outputs/                         ← reports จาก test automation
 ```
 
@@ -136,17 +138,16 @@ Output: `src/app/data/ipo.json` (~3.3 MB)
 
 ### 1. ตั้งค่าฐานข้อมูล (PostgreSQL)
 
-สร้าง database แล้วรัน SQL migration ใน `supabase/migrations/` **เรียงตามลำดับเลข**
-ด้วย `psql` (โฟลเดอร์ชื่อ `supabase/` ตามที่มา แต่เป็น Postgres มาตรฐาน):
+สร้าง database แล้วรัน SQL migration ใน `db/migrations/` **เรียงตามลำดับเลข** ด้วย `psql`:
 
 ```bash
 # Linux/macOS — รันทุกไฟล์เรียงลำดับ
-for f in supabase/migrations/*.sql; do psql "$DATABASE_URL" -f "$f"; done
+for f in db/migrations/*.sql; do psql "$DATABASE_URL" -f "$f"; done
 ```
 
 ```powershell
 # Windows PowerShell
-Get-ChildItem supabase/migrations/*.sql | Sort-Object Name | ForEach-Object {
+Get-ChildItem db/migrations/*.sql | Sort-Object Name | ForEach-Object {
   psql $env:DATABASE_URL -f $_.FullName
 }
 ```

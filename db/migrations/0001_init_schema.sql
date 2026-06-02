@@ -1,6 +1,6 @@
 -- =====================================================
 -- IPO Admin Dashboard — Initial Schema
--- Run on Supabase via: supabase db push  OR  paste into SQL Editor
+-- Run with: psql "$DATABASE_URL" -f db/migrations/0001_init_schema.sql
 -- =====================================================
 
 -- =====================================================
