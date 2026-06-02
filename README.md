@@ -95,6 +95,69 @@ Output: `src/app/data/ipo.json` (~3.3 MB)
 - **Data** — Static JSON (precompute จาก CSV)
 - **State** — React Context (no backend)
 - **Testing** — Jest + Testing Library
+- **Admin / API** — Next.js API routes + PostgreSQL (Supabase) ผ่าน `pg` (เฉพาะ `/ipo` dashboard)
+
+> หน้า analytics สาธารณะ (`/`) เป็น static ล้วน อ่านจาก `ipo.json` ไม่ต้องมี DB —
+> ส่วน admin dashboard ที่ `/ipo` ต้องเชื่อม PostgreSQL จึงต้องตั้งค่า env ด้านล่าง
+
+---
+
+## Environment Variables
+
+คัดลอก `ipo-ui/.env.example` → `ipo-ui/.env.local` แล้วเติมค่าจริง
+(`.env.local` ถูก gitignore ไว้ — **ห้าม commit secret**)
+
+| ตัวแปร | จำเป็น | ใช้ทำอะไร |
+|---|---|---|
+| `DATABASE_URL` | ✅ | connection string ของ Postgres (แนะนำใช้ Supabase **pooler** port 6543). ถ้าไม่ตั้ง จะ fallback ไปใช้ `POSTGRES_HOST/PORT/DB/USER/PASSWORD` |
+| `SESSION_SECRET` | ✅ | คีย์เซ็น JWT session ของ admin — `openssl rand -base64 32` |
+| `NEXT_PUBLIC_API_CIPHER_KEY` | ✅ | คีย์ AES-256-GCM (hex 64 ตัว) เข้ารหัส API response — `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `GH_TOKEN`, `GH_REPO`, `GH_WORKFLOW` | – | สำหรับปุ่ม trigger build (GitHub Actions) ในหน้า `/ipo/builds` |
+| `NEXT_PUBLIC_APP_URL` | – | base URL ตอน self-host (บน Vercel ใช้ `VERCEL_URL` อัตโนมัติ) |
+| `NODE_OPTIONS` | – | เช่น `--max-old-space-size=4096` กัน OOM ตอน build (ipo.json ใหญ่) |
+| `SCRAPER_*` | – | ตั้งค่า Python scraper ดู `.env.example` |
+
+> หมายเหตุ: โปรเจกต์เชื่อม Postgres ตรงผ่าน `pg` — **ไม่ได้ใช้** supabase-js
+> ฉะนั้นไม่ต้องตั้ง `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`
+
+---
+
+## Deployment
+
+ก่อน deploy ทุกแบบ ต้อง build ข้อมูลก่อน (สร้าง `ipo.json` จาก DB หรือ CSV):
+
+```bash
+cd ipo-ui
+npm ci
+npm run build:data    # ดึงจาก DB  (หรือ npm run build:csv ถ้าจะ build จาก CSV)
+```
+
+### ตัวเลือก A — Vercel
+
+1. Push repo ขึ้น GitHub
+2. ที่ Vercel → **New Project** → import repo
+3. ตั้ง **Root Directory** = `ipo-ui`
+4. **Project Settings → Environment Variables** ใส่ตัวแปรจากตารางด้านบน
+   (อย่างน้อย `DATABASE_URL`, `SESSION_SECRET`, `NEXT_PUBLIC_API_CIPHER_KEY`)
+5. Framework auto-detect เป็น Next.js — `npm run build` / output อัตโนมัติ
+6. กด **Deploy**
+
+> ใช้ Supabase **pooler host** (`...pooler.supabase.com:6543`) เสมอ —
+> host แบบ direct (`db.<ref>.supabase.co`) เป็น IPv6-only มักต่อไม่ได้บน Vercel
+
+### ตัวเลือก B — Self-host / VPS (Node 20+)
+
+```bash
+cd ipo-ui
+cp .env.example .env.local   # แล้วเติมค่าจริง
+npm ci
+npm run build:data           # สร้าง ipo.json
+npm run build                # build production
+npm run start                # รันที่ port 3000
+```
+
+แนะนำรันด้วย process manager (เช่น `pm2 start "npm run start" --name ipo-ui`)
+และวาง reverse proxy (Nginx/Caddy) หน้า port 3000 พร้อม HTTPS
 
 ---
 
