@@ -122,14 +122,6 @@ async function runPostCommitMaintenance(types: Set<SupportedCsvType>) {
     await syncMaturedIpoStatuses();
   }
 
-  if (types.has("base") || types.has("fa_norm")) {
-    try {
-      await query("SELECT sync_underwriters_from_ipos()");
-    } catch {
-      // Migration 0005 may not be applied yet
-    }
-  }
-
   if (types.has("base") || types.has("financials") || types.has("sector")) {
     await ensureValidationRules();
     await query("SELECT run_validations()");
@@ -304,22 +296,12 @@ FROM rows
 WHERE ipos.symbol = rows.symbol`;
 
 const faNormBulkUpsertSql = `
-WITH rows AS (
-  SELECT
-    payload->>'raw_name' AS raw_name,
-    payload->>'normalized_name' AS normalized_name
-  FROM jsonb_array_elements($1::jsonb) AS input(payload)
-),
-upserted AS (
-  INSERT INTO fa_normalizations (raw_name, normalized_name)
-  SELECT raw_name, normalized_name FROM rows
-  ON CONFLICT (raw_name) DO UPDATE SET normalized_name = EXCLUDED.normalized_name
-  RETURNING raw_name
-)
-UPDATE fa_companies
-SET normalized_name = rows.normalized_name
-FROM rows
-WHERE fa_companies.name = rows.raw_name`;
+INSERT INTO fa_normalizations (raw_name, normalized_name)
+SELECT
+  payload->>'raw_name' AS raw_name,
+  payload->>'normalized_name' AS normalized_name
+FROM jsonb_array_elements($1::jsonb) AS input(payload)
+ON CONFLICT (raw_name) DO UPDATE SET normalized_name = EXCLUDED.normalized_name`;
 
 async function commitType(
   type: SupportedCsvType,
