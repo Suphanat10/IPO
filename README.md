@@ -144,11 +144,42 @@ Get-ChildItem supabase/migrations/*.sql | Sort-Object Name | ForEach-Object {
 }
 ```
 
-จากนั้นนำเข้าข้อมูล IPO เริ่มต้น (จาก CSV) เข้า DB:
+จากนั้นรัน migration ของ auth/RBAC (อยู่คนละโฟลเดอร์ — จำเป็นสำหรับ admin login):
+
+```bash
+cd ipo-ui && node scripts/run-auth-rbac-migration.mjs
+```
+
+แล้วนำเข้าข้อมูล IPO เริ่มต้น (จาก CSV) เข้า DB:
 
 ```bash
 cd ipo-ui && npm run db:import
 ```
+
+#### Schema ที่ migration สร้าง
+
+**Core IPO data**
+- `ipos` — ตารางหลัก: symbol, ราคา IPO, returns (D1–6M), market/industry/sector, FA/underwriter
+- `ipo_financials` — งบการเงินต่อ IPO (ROE/DE/PE ฯลฯ)
+- `sectors` — mapping symbol → market / industry / sector
+- `fa_normalizations` — normalize ชื่อ FA (บุคคล/บริษัท)
+
+**Data quality / validation**
+- `validation_rules` — กฎตรวจความครบถ้วน/ถูกต้องของข้อมูล
+- `validation_results` — ผลการตรวจรายเรคคอร์ด
+
+**Build & scrape pipeline**
+- `build_runs`, `build_logs` — log การ build `ipo.json`
+- `sync_jobs` — งาน sync ข้อมูล
+- `scrape_runs`, `scrape_run_items` — log การ scrape upcoming IPO
+- `scraper_schedule` — ตารางเวลา scraper
+
+**Admin auth / RBAC**
+- `admin_users`, `admin_roles`, `admin_permissions`, `admin_role_permissions`, `admin_sessions`
+
+**Views** (สำหรับ dashboard / รายงาน)
+- `v_dashboard_stats`, `v_ipo_completeness`, `v_ipo_missing_fields`, `v_recent_updates`,
+  `v_upcoming_ipos`, `v_fa_company_stats`, `v_underwriter_stats`
 
 ### 2. Build ข้อมูล (สร้าง `ipo.json`)
 
