@@ -3,6 +3,28 @@
 
 export type IpoStatus = "upcoming" | "listed" | "cancelled";
 
+/** Human verification state for a single IPO form section. */
+export interface IpoSectionVerification {
+  verified: boolean;
+  /** ISO timestamp of when the section was marked verified. */
+  at?: string | null;
+}
+
+/**
+ * Where a single field's value was extracted from in the SEC source documents.
+ * Surfaced in the IPO edit form so a reviewer can check the value against its
+ * proof. Only fields pulled from ก.ล.ต. (financials / offering) carry this;
+ * SET-sourced identity fields have none.
+ */
+export interface IpoFieldEvidence {
+  source_text: string;
+  sheet_name?: string | null;
+  row_number?: number | null;
+  column_name?: string | null;
+  source_file?: string | null;
+  parser?: string | null;
+}
+
 export interface IpoRow {
   id: number;
   symbol: string;
@@ -31,6 +53,8 @@ export interface IpoRow {
   lead_uw: string[] | null;
   co_uws: string[] | null;
   source: string | null;
+  /** Per-section verification map, keyed by IpoSectionKey. */
+  verified_sections?: Record<string, IpoSectionVerification> | null;
   created_at: string;
   updated_at: string;
 }
@@ -89,6 +113,8 @@ export interface UpcomingRow extends CompletenessRow {
   fa_companies: string[] | null;
   fa_persons: string[] | null;
   days_until: number | null;
+  has_fa: boolean;
+  has_lead_uw: boolean;
 }
 
 export interface ValidationResult {

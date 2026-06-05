@@ -26,6 +26,7 @@ export async function GET(request: Request) {
   const statusParam = url.searchParams.get("status");
   const resolvedParam = url.searchParams.get("resolved");
   const limitParam = url.searchParams.get("limit");
+  const ipoIdParam = url.searchParams.get("ipoId");
 
   const status =
     statusParam && VALID_STATUSES.includes(statusParam as SecSourceFileStatus)
@@ -38,9 +39,15 @@ export async function GET(request: Request) {
         ? false
         : undefined;
   const limit = limitParam ? Number(limitParam) : undefined;
+  const ipoId = ipoIdParam ? Number(ipoIdParam) : undefined;
+
+  if (ipoIdParam && !Number.isInteger(ipoId)) {
+    return Response.json({ error: "ipoId must be an integer." }, { status: 400 });
+  }
 
   try {
     const files = await getSecSourceFiles({
+      ipoId,
       // Default to the review queue when no explicit filter is given.
       status: status ?? (resolvedParam === null && statusParam === null ? "needs_review" : status),
       resolved: resolved ?? (statusParam === null ? false : resolved),

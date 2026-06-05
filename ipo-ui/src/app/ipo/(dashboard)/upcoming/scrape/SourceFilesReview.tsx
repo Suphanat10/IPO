@@ -27,6 +27,7 @@ import {
   AdminStatusPill,
   adminColors,
 } from "../../../components/AdminPrimitives";
+import { openSourceFileViewer, openInOfficeViewer } from "@/app/lib/secFileViewer";
 
 type SourceEvidence = {
   field_name: string;
@@ -347,27 +348,6 @@ function ExtractedFields({
       ) : null}
     </Box>
   );
-}
-
-// Open a SEC source file via our same-origin unzip proxy: xlsx is rendered as an
-// HTML table, docx as a readable page. Same-origin so it works on localhost,
-// ngrok and production alike — no external Office viewer (which can't reach those).
-function openSourceFileViewer(sourceUrl: string | null) {
-  if (!sourceUrl) return;
-  const url = `/api/ipo/upcoming/source-files/view?url=${encodeURIComponent(sourceUrl)}`;
-  window.open(url, "_blank", "noopener,noreferrer");
-}
-
-// Open via the Microsoft Office Online viewer instead, pointed at our proxy's
-// raw bytes. Renders xlsx/docx with full Office fidelity, but only works when the
-// app is on a public URL Microsoft can fetch (i.e. a real deploy, not localhost).
-function openInOfficeViewer(sourceUrl: string | null) {
-  if (!sourceUrl) return;
-  const proxy = `${window.location.origin}/api/ipo/upcoming/source-files/view?raw=1&url=${encodeURIComponent(
-    sourceUrl,
-  )}`;
-  const viewer = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(proxy)}`;
-  window.open(viewer, "_blank", "noopener,noreferrer");
 }
 
 function SourceFileLinks({ files }: { files: SourceFileRow[] }) {

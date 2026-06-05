@@ -2,7 +2,8 @@ import { Alert, Button, Stack } from "@mui/material";
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import Link from "next/link";
 import IpoForm from "../IpoForm";
-import { getIpo } from "@/lib/admin/queries";
+import { getIpo, getIpoFieldEvidence } from "@/lib/admin/queries";
+import { effectiveIpoStatus } from "@/lib/ipo-status";
 import {
   ADMIN_RADIUS,
   AdminPageHeader,
@@ -13,7 +14,10 @@ export default async function IpoEditPage(props: {
 }) {
   const { id } = await props.params;
 
-  const { ipo, financials } = await getIpo(Number(id));
+  const [{ ipo, financials }, evidence] = await Promise.all([
+    getIpo(Number(id)),
+    getIpoFieldEvidence(Number(id)),
+  ]);
 
   if (!ipo) {
     return (
@@ -26,9 +30,14 @@ export default async function IpoEditPage(props: {
     );
   }
 
+  const backHref =
+    effectiveIpoStatus(ipo.status, ipo.listing_date) === "upcoming"
+      ? "/ipo/upcoming"
+      : "/ipo/ipos";
+
   return (
     <Stack spacing={3}>
-      <Link href="/ipo/ipos" style={{ alignSelf: "flex-start", textDecoration: "none" }}>
+      <Link href={backHref} style={{ alignSelf: "flex-start", textDecoration: "none" }}>
         <Button variant="outlined" startIcon={<ArrowBackRoundedIcon />}>
           กลับ / Back
         </Button>
@@ -40,7 +49,7 @@ export default async function IpoEditPage(props: {
         description={ipo.company_name ?? "ยังไม่มีชื่อบริษัท / No company name recorded yet."}
       />
 
-      <IpoForm ipo={ipo} financials={financials} />
+      <IpoForm ipo={ipo} financials={financials} evidence={evidence} />
     </Stack>
   );
 }

@@ -1,7 +1,6 @@
 ﻿import { Stack } from "@mui/material";
 import { AdminPageHeader } from "../../../components/AdminPrimitives";
 import ScrapeConsole from "./ScrapeConsole";
-import SourceFilesReview from "./SourceFilesReview";
 
 export default function UpcomingScrapePage() {
   return (
@@ -12,7 +11,6 @@ export default function UpcomingScrapePage() {
         description="สั่งดึงข้อมูล IPO ที่จะเข้าตลาดจาก SET API + SEC, ตรวจดู diff ก่อน apply, และดูประวัติการ scrape ย้อนหลัง "
       />
       <ScrapeConsole />
-      <SourceFilesReview />
     </Stack>
   );
 }

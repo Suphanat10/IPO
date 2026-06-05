@@ -230,6 +230,7 @@ export async function getIpoFinancials(
 }
 
 export interface GetSecSourceFilesOpts {
+  ipoId?: number;
   status?: SecSourceFileStatus;
   resolved?: boolean;
   limit?: number;
@@ -240,6 +241,10 @@ export async function getSecSourceFiles(
 ): Promise<SecSourceFileRow[]> {
   const conditions: string[] = [];
   const params: unknown[] = [];
+  if (opts.ipoId !== undefined) {
+    params.push(opts.ipoId);
+    conditions.push(`ipo_id = $${params.length}`);
+  }
   if (opts.status) {
     params.push(opts.status);
     conditions.push(`status = $${params.length}`);

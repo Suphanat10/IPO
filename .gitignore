@@ -56,3 +56,9 @@ ipo-ui/scripts/test-set-api.mjs
 # Python bytecode (in case scripts contain .py)
 __pycache__/
 *.pyc
+
+# Local DB backups (full data dumps — never commit)
+backups/
+
+# Scratch/verification temp files
+.tmp_*
