@@ -150,7 +150,10 @@ export const fundamentalsBySymbol = data.fundamentalsBySymbol as Record<
 >;
 export const globalFundamentalStats =
   data.globalFundamentalStats as GlobalFundamentalStats;
-export const tierThresholds = data.tierThresholds as TierThresholds;
+// roe/ey/de/cost quantiles can be null in ipo.json when there isn't enough
+// data to compute them, so go through `unknown` (TierThresholds keeps them as
+// number for the consuming tier logic, which already treats a missing bin as 0).
+export const tierThresholds = data.tierThresholds as unknown as TierThresholds;
 export const peerBySector = data.peerBySector as Record<string, PeerGroupStats>;
 export const peerByIndustry = data.peerByIndustry as Record<string, PeerGroupStats>;
 export const sectorParent = data.sectorParent as Record<string, string>;
