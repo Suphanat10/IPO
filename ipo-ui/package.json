@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 0.0.0.0 -p 3000",
+    "dev": "next dev --webpack --disable-source-maps --no-server-fast-refresh -H 0.0.0.0 -p 3000",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -27,6 +27,7 @@
     "chart.js": "^4.5.1",
     "exceljs": "^4.4.0",
     "jose": "^6.2.3",
+    "mammoth": "^1.12.0",
     "next": "16.2.4",
     "pg": "^8.13.1",
     "react": "19.2.4",

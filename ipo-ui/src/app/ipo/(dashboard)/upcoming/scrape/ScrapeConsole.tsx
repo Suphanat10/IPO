@@ -13,6 +13,7 @@ import {
   Divider,
   FormControl,
   IconButton,
+  Link,
   MenuItem,
   Select,
   Stack,
@@ -253,6 +254,69 @@ function formatValue(v: unknown): string {
   if (Array.isArray(v)) return v.length ? v.join(", ") : "-";
   if (typeof v === "object") return JSON.stringify(v);
   return String(v);
+}
+
+// ข้อมูลที่มาจาก ก.ล.ต. (อยู่ใน scraped_data.secMeta) — แสดงเป็นตารางแทน JSON ดิบ.
+const SEC_FIELD_LABELS: Record<string, string> = {
+  filing_url: "ลิงก์แบบไฟลิ่ง / Filing",
+  sec_trans_id: "เลขที่คำขอ (TransID)",
+  executive_summary_url: "สรุปผู้บริหาร / Exec summary",
+  par_value: "ราคาพาร์ / Par value",
+  pe_ratio: "P/E",
+  market_cap: "มูลค่าตลาด / Market cap",
+  issued_size: "ขนาดที่ออก / Issued size",
+};
+const SEC_FIELD_ORDER = Object.keys(SEC_FIELD_LABELS);
+
+function isHttpUrl(v: unknown): v is string {
+  return typeof v === "string" && /^https?:\/\//i.test(v);
+}
+
+function SecMetaSection({ scraped }: { scraped: Record<string, unknown> | null }) {
+  const secMeta =
+    scraped && typeof scraped.secMeta === "object" && scraped.secMeta !== null
+      ? (scraped.secMeta as Record<string, unknown>)
+      : null;
+  if (!secMeta) return null;
+
+  const keys = [
+    ...SEC_FIELD_ORDER.filter((k) => secMeta[k] != null),
+    ...Object.keys(secMeta).filter((k) => !SEC_FIELD_ORDER.includes(k) && secMeta[k] != null),
+  ];
+  if (keys.length === 0) return null;
+
+  return (
+    <Box>
+      <Typography sx={{ fontWeight: 800, mb: 1, fontSize: 14 }}>
+        ข้อมูลจาก ก.ล.ต. / SEC data
+      </Typography>
+      <TableContainer>
+        <Table size="small" sx={adminTableSx}>
+          <TableBody>
+            {keys.map((k) => {
+              const value = secMeta[k];
+              return (
+                <TableRow key={k}>
+                  <TableCell sx={{ width: 220, fontSize: 12, fontWeight: 700 }}>
+                    {SEC_FIELD_LABELS[k] ?? k}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: 12, wordBreak: "break-all" }}>
+                    {isHttpUrl(value) ? (
+                      <Link href={value} target="_blank" rel="noopener noreferrer">
+                        {value}
+                      </Link>
+                    ) : (
+                      formatValue(value)
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </Box>
+  );
 }
 
 export default function ScrapeConsole() {
@@ -1256,6 +1320,8 @@ function ItemDetailView({ item }: { item: ItemRow }) {
           ไม่มีการเปลี่ยนแปลงข้อมูล / No data changes
         </Typography>
       )}
+
+      <SecMetaSection scraped={item.scraped_data} />
 
       <Divider />
 
