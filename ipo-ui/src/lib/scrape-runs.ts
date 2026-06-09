@@ -4,7 +4,9 @@ type StaleRunRow = {
   id: string;
 };
 
-const DEFAULT_RUN_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_RUN_TIMEOUT_MS = process.env.VERCEL
+  ? 4 * 60 * 1000
+  : 30 * 60 * 1000;
 const STALE_RUN_GRACE_MS = 5 * 60 * 1000;
 
 export function getScraperTimeoutMs(): number {

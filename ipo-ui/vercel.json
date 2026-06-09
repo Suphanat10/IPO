@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/ipo/upcoming/scrape",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/ipo/upcoming/scrape",
+      "schedule": "30 10 * * *"
+    }
+  ]
+}
