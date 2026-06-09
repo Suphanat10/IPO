@@ -320,14 +320,17 @@ function ExtractedFields({
             </Box>
             <Box sx={{ minWidth: 0 }}>
               <Typography
+              component="div"
               sx={{
                 color: fieldEvidence?.source_text ? adminColors.text : adminColors.muted,
-                display: "-webkit-box",
                 fontSize: 12,
                 lineHeight: 1.5,
-                overflow: "hidden",
-                WebkitBoxOrient: "vertical",
-                WebkitLineClamp: 2,
+                // Full evidence (so the matched figure is always visible); cap
+                // height and scroll long passages instead of clamping to 2 lines.
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                maxHeight: 120,
+                overflowY: "auto",
               }}
             >
               {fieldEvidence?.source_text ?? "ไม่มีหลักฐานแถวต้นทางใน run นี้"}

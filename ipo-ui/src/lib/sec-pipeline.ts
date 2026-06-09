@@ -25,7 +25,10 @@ import {
   getLatestShaForTransId,
   getIpoFinancials,
   importFsFinancials,
+  isAutoImportable,
+  secAutoImportEnabled,
   validateFsFinancials,
+  AWAITING_CONFIRMATION_REASON,
   type FsFinancialFields,
   type SecSourceDataStatus,
   type SecSourceValidationStatus,
@@ -115,6 +118,28 @@ function hasNumericFields(fields: Record<string, unknown>): boolean {
 }
 
 /**
+ * An unchanged (byte-identical) file should be recorded as "unchanged" and
+ * skipped only when there is nothing importable to add. If it can still import
+ * values the DB is missing, the pipeline backfills instead of skipping — so a
+ * never-changing SEC document still heals a previously-missed field on the next
+ * scheduled scrape, with no manual reprocess.
+ */
+export function shouldSkipUnchanged(
+  dataStatus: SecSourceDataStatus,
+  importable: boolean,
+): boolean {
+  return dataStatus === "unchanged" && !importable;
+}
+
+/** "offered_shares=52769000, offered_ratio_pct=35" — for the per-file audit log. */
+function describeFields(fields: Record<string, unknown>): string {
+  const parts = Object.entries(fields)
+    .filter(([, v]) => typeof v === "number" && Number.isFinite(v))
+    .map(([k, v]) => `${k}=${v}`);
+  return parts.length > 0 ? parts.join(", ") : "(none)";
+}
+
+/**
  * True when EVERY numeric field this file extracted already exists in the DB
  * with an equal value. Such a file adds nothing to ipo_financials, so the
  * pipeline drops it without recording. A tiny tolerance absorbs float
@@ -156,6 +181,13 @@ async function processFile(
   targetSummary: SecTargetSummary,
 ): Promise<void> {
   const fields = file.fields as FsFinancialFields;
+
+  // Per-file audit log: exactly which numeric fields this file yielded. Makes it
+  // verifiable from the run log whether a given field (e.g. offered_shares) was
+  // extracted at all, before any import/review decision is taken.
+  log.log(
+    `  [SEC] ${target.symbol} ${file.file_name ?? file.source_url}: fields ${describeFields(file.fields)}`,
+  );
 
   // Skip entirely (record nothing) when every value this file extracted already
   // matches ipo_financials — re-staging would add no new information.
@@ -212,8 +244,28 @@ async function processFile(
   summary.filesStaged++;
   targetSummary.files++;
 
-  // Unchanged files: nothing to import, just record for the version trail.
-  if (dataStatus === "unchanged") {
+  // Whether the extraction is valid/complete enough to import…
+  const extractionValid = isAutoImportable({
+    formatOk: file.format_ok,
+    validationStatus,
+    hasNumericFields: hasNumericFields(file.fields),
+  });
+  // …and whether we may actually write it to the live financials now. OFF by
+  // default: scraped data is staged for confirmation, never auto-imported into
+  // the production database (set SEC_PIPELINE_AUTO_IMPORT=1 to opt in).
+  const importable = extractionValid && secAutoImportEnabled();
+
+  // Unchanged files (byte-identical to a previous run) usually need no action.
+  // BUT if an unchanged file carries importable values the DB still lacks, we
+  // must backfill them now instead of skipping forever. Step 1 above already
+  // dropped files whose every extracted value already matches the DB, so
+  // reaching here with importable=true means there IS something new to write —
+  // e.g. an earlier run parked these in needs_review, or the import gate has
+  // since been fixed. Without this, a SEC document that never changes bytes
+  // would leave a previously-missed field (like PETPAL's offered_shares) blank
+  // forever, forcing a manual reprocess. We only short-circuit when there is
+  // nothing to import.
+  if (shouldSkipUnchanged(dataStatus, importable)) {
     await recordSecSourceFile({
       ...base,
       status: "unchanged",
@@ -241,11 +293,6 @@ async function processFile(
     log.log(`  [SEC] ${target.symbol} ${file.file_name ?? file.source_url}: no_data`);
     return;
   }
-
-  const importable =
-    file.format_ok &&
-    validationStatus === "passed" &&
-    hasNumericFields(file.fields);
 
   if (importable) {
     try {
@@ -282,20 +329,28 @@ async function processFile(
     return;
   }
 
-  // Not importable → needs human review. Explain why.
+  // Not auto-imported → staged for human review. Explain why: a real problem
+  // (bad format / failed sanity) or simply awaiting confirmation because the
+  // data is valid but auto-import is disabled.
   const reasons: string[] = [];
   if (!file.format_ok) reasons.push("unrecognized format/columns");
   if (validationStatus === "failed") reasons.push("sanity validation failed");
+  const reviewReason =
+    reasons.length > 0
+      ? reasons.join("; ")
+      : extractionValid
+        ? AWAITING_CONFIRMATION_REASON
+        : "requires review";
 
   await recordSecSourceFile({
     ...base,
     status: "needs_review",
-    review_reason: reasons.join("; ") || "requires review",
+    review_reason: reviewReason,
   });
   summary.needsReview++;
   targetSummary.needs_review++;
   log.log(
-    `  [SEC] ${target.symbol} ${file.file_name ?? file.source_url}: needs_review (${reasons.join("; ")})`,
+    `  [SEC] ${target.symbol} ${file.file_name ?? file.source_url}: needs_review (${reviewReason})`,
   );
 }
 

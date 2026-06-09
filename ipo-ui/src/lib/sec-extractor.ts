@@ -28,7 +28,7 @@ const SEC_FS_TIMEOUT = Number(process.env.SCRAPER_SEC_FS_TIMEOUT ?? 60) * 1000;
 const SEC_FS_MAX_BYTES = Number(process.env.SCRAPER_SEC_FS_MAX_BYTES ?? 0);
 const SEC_DOC_RETRIES = Number(process.env.SCRAPER_SEC_DOC_RETRIES ?? 0);
 const SEC_RETRY_SLEEP_MS = Number(process.env.SCRAPER_SEC_RETRY_SLEEP_SECONDS ?? 0.5) * 1000;
-const SEC_PARSER_VERSION = "financials-v9";
+const SEC_PARSER_VERSION = "financials-v10";
 
 const SEC_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
@@ -265,9 +265,17 @@ async function fetchBuffer(url: string, timeout: number, retries = 0): Promise<B
 // Thai number parsing
 // ---------------------------------------------------------------------------
 
-function parseThaiNumber(text: string): number | null {
+/**
+ * Parse a Thai/Western grouped number into a JS number. Tolerant of the noise
+ * that survives scraping: thousands separators (`52,769,000`), stray spaces from
+ * a line break that `normalizeDocText` collapsed (`52, 769, 000`), currency or
+ * unit words, etc. Returns null when there is no real number (e.g. a lone "-").
+ */
+export function parseThaiNumber(text: string): number | null {
   if (!text) return null;
-  const cleaned = text.replace(/[^\d.,\-]/g, "").replace(/,/g, "");
+  // Drop everything except digits, separators and a sign, then remove the
+  // grouping commas/spaces so "52, 769,000" -> "52769000".
+  const cleaned = text.replace(/[^\d.,\-\s]/g, "").replace(/[,\s]/g, "");
   if (!cleaned || cleaned === "." || cleaned === "-") return null;
   const val = Number(cleaned);
   return Number.isFinite(val) ? val : null;
@@ -1321,47 +1329,105 @@ function parseSubscriptionReport(text: string, sourceUrl: string): FinancialPars
   return { fields, evidence };
 }
 
-function parseSecuritiesOffering(text: string, sourceUrl: string): FinancialParseResult {
-  const fields: Partial<DocFinancials> = {};
-  const evidence: Record<string, SecSourceEvidence> = {};
-  const norm = normalizeDocText(text);
+// Section headers / inline labels (Thai + English) that introduce the number of
+// offered shares. Kept generic so every IPO filing is covered — never keyed to a
+// specific symbol. Order matters: more specific section headers come first.
+const OFFERED_SHARES_SECTION_KWS = [
+  "ลักษณะสำคัญของหลักทรัพย์ที่เสนอขาย",
+  "รายละเอียดของหลักทรัพย์ที่เสนอขาย",
+  "จำนวนหุ้นสามัญที่เสนอขาย",
+  "จำนวนหุ้นที่เสนอขาย",
+  "Offered shares",
+  "Number of shares offered",
+  "Number of offered shares",
+  "shares offered",
+];
 
-  const shareKws = [
-    "ลักษณะสำคัญของหลักทรัพย์ที่เสนอขาย",
-    "รายละเอียดของหลักทรัพย์ที่เสนอขาย",
-    "จำนวนหุ้นที่เสนอขาย",
-  ];
-  for (const kw of shareKws) {
+// Inline labels for the colon-style fallback ("จำนวนหุ้นที่เสนอขาย : 52,769,000").
+const OFFERED_SHARES_LABELS = [
+  "จำนวนหุ้นสามัญที่เสนอขายทั้งหมด",
+  "จำนวนหุ้นสามัญที่เสนอขาย",
+  "จำนวนหุ้นที่เสนอขายทั้งหมด",
+  "จำนวนหุ้นที่เสนอขาย",
+  "Number of offered shares",
+  "Number of shares offered",
+  "Offered shares",
+];
+
+// Unit that follows a share count: Thai "หุ้น" or English "share(s)".
+const SHARE_UNIT = String.raw`(?:หุ้น|shares?)`;
+
+/**
+ * Locate the offered-share count in a (normalized) offering document, in Thai or
+ * English, tolerating commas/spaces inside the number and the count + unit
+ * landing on different scraped lines (normalizeDocText has already joined them).
+ *
+ * Two passes, most reliable first:
+ *   1. Inside an offering section, the first "<number> หุ้น|shares".
+ *   2. A bare number immediately after an offered-shares label (with optional
+ *      ":" ) — for filings that omit the trailing unit word.
+ */
+function findOfferedShares(norm: string): TextHit | null {
+  const unitRe = new RegExp(`(${THAI_NUMBER_TOKEN})\\s*${SHARE_UNIT}`, "i");
+  for (const kw of OFFERED_SHARES_SECTION_KWS) {
     const idx = norm.indexOf(kw);
     if (idx === -1) continue;
     const nearby = norm.slice(idx, idx + 1000);
-    const m = nearby.match(new RegExp(`(${THAI_NUMBER_TOKEN})\\s*หุ้น`));
+    const m = nearby.match(unitRe);
     if (m) {
-      const val = parseThaiNumber(m[1].replace(/ /g, ""));
-      if (val && val > 100) {
-        fields.offered_shares = Math.round(val);
-        evidence.offered_shares = evidenceFromTextHit(
-          "offered_shares",
-          { value: Math.round(val), sourceText: snippet(nearby, 0) },
-          sourceUrl,
-        );
-        break;
+      const val = parseThaiNumber(m[1]);
+      if (val !== null && val > 100) {
+        // Anchor the evidence on the matched number (with a short lead-in for
+        // context) so the reviewer actually SEES the figure. The section header
+        // can sit far (>220 chars) from the number, so starting the snippet at
+        // the header would cut off before the value ever appears.
+        const at = Math.max(0, (m.index ?? 0) - 80);
+        return { value: Math.round(val), sourceText: snippet(nearby, at) };
       }
     }
   }
 
+  for (const label of OFFERED_SHARES_LABELS) {
+    const labelRe = new RegExp(
+      `${escapeRegex(label)}\\s*[:：]?\\s*(${THAI_NUMBER_TOKEN})`,
+      "i",
+    );
+    const m = norm.match(labelRe);
+    if (m) {
+      const val = parseThaiNumber(m[1]);
+      if (val !== null && val > 100) {
+        return { value: Math.round(val), sourceText: snippet(norm, m.index ?? 0) };
+      }
+    }
+  }
+  return null;
+}
+
+export function parseSecuritiesOffering(
+  text: string,
+  sourceUrl: string,
+): FinancialParseResult {
+  const fields: Partial<DocFinancials> = {};
+  const evidence: Record<string, SecSourceEvidence> = {};
+  const norm = normalizeDocText(text);
+
+  const offered = findOfferedShares(norm);
+  if (offered) {
+    fields.offered_shares = offered.value;
+    evidence.offered_shares = evidenceFromTextHit("offered_shares", offered, sourceUrl);
+  }
+
+  // Ownership ratio of the offering, anchored to a ratio keyword (Thai or
+  // English) so we never grab an unrelated percentage elsewhere in the section.
   let ratioText = norm;
-  for (const sectionKw of [
-    "ลักษณะสำคัญของหลักทรัพย์ที่เสนอขาย",
-    "รายละเอียดของหลักทรัพย์ที่เสนอขาย",
-  ]) {
+  for (const sectionKw of OFFERED_SHARES_SECTION_KWS) {
     const idx = norm.indexOf(sectionKw);
     if (idx !== -1) {
       ratioText = norm.slice(idx, idx + 1500);
       break;
     }
   }
-  for (const kw of ["คิดเป็นร้อยละ", "ร้อยละ"]) {
+  for (const kw of ["คิดเป็นร้อยละ", "ร้อยละ", "representing", "equivalent to"]) {
     const idx = ratioText.indexOf(kw);
     if (idx === -1) continue;
     const hit = firstPctHit(ratioText.slice(idx, idx + 300));
@@ -1409,7 +1475,7 @@ function parseShareholderInfo(text: string, sourceUrl: string): FinancialParseRe
   return { fields, evidence };
 }
 
-function parseAnyTextDoc(text: string, sourceUrl: string): FinancialParseResult {
+export function parseAnyTextDoc(text: string, sourceUrl: string): FinancialParseResult {
   const fields: Partial<DocFinancials> = {};
   const evidence: Record<string, SecSourceEvidence> = {};
   mergeFields(fields, evidence, parseSubscriptionReport(text, sourceUrl), false);
@@ -1641,6 +1707,19 @@ async function extractTextDoc(
   if (!text) return null;
 
   const parsed = parser(text, url);
+  // Per-document extraction log: which fields were found (and which were not),
+  // so a reviewer can tell from the run log whether e.g. offered_shares was
+  // pulled out of this prose doc before any import decision.
+  const extractedKeys = Object.keys(parsed.fields);
+  if (extractedKeys.length > 0) {
+    const desc = extractedKeys
+      .map((k) => `${k}=${(parsed.fields as Record<string, number>)[k]}`)
+      .join(", ");
+    log.log(`  SEC docs: extracted ${desc} from ${fileNameFromUrl(url) ?? url}`);
+  } else {
+    log.warn(`  SEC docs: no fields extracted from ${fileNameFromUrl(url) ?? url}`);
+  }
+
   const base = emptyFileExtraction(url, buf, fileKind, null);
   base.content_sha256 = crypto.createHash("sha256").update(buf).digest("hex");
   base.format_ok = true; // prose docs are always "readable"

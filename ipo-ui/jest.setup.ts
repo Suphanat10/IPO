@@ -1,6 +1,8 @@
 import "@testing-library/jest-dom";
 
-if (!window.matchMedia) {
+// Node-environment tests (e.g. pure parser/logic suites that pull in node-only
+// deps) have no `window`; the jsdom polyfills below only apply when it exists.
+if (typeof window !== "undefined" && !window.matchMedia) {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: (query: string) => ({

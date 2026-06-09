@@ -309,10 +309,14 @@ function extractTransId(filingUrl: string | undefined): string | null {
 
 function parseOfferedShares(noOfIPO: string | null | undefined): number | null {
   if (!noOfIPO) return null;
-  const m = noOfIPO.replace(/ /g, "").match(/^([\d,]+)/);
+  // SET's noOfIPO is usually a bare grouped number ("52,769,000") but can arrive
+  // with a unit or label ("52,769,000 หุ้น", "IPO 52,769,000 shares") or a stray
+  // non-breaking space. Pull the first grouped-number run anywhere in the string
+  // rather than anchoring at the start, then strip separators.
+  const m = noOfIPO.match(/\d[\d,\s]*(?:\.\d+)?/);
   if (!m) return null;
-  const val = Number(m[1].replace(/,/g, ""));
-  return Number.isFinite(val) ? val : null;
+  const val = Number(m[0].replace(/[,\s]/g, ""));
+  return Number.isFinite(val) && val > 0 ? val : null;
 }
 
 function transformIpo(raw: RawSetIpo): TransformedRecord | null {

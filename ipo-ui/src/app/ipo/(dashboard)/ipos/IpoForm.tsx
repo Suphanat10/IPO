@@ -615,6 +615,7 @@ function SectionSourceFileCard({
   onImportEdited,
   onReject,
   onResolve,
+  onReprocess,
 }: {
   file: SecSourceFileRow;
   section: IpoSectionKey;
@@ -625,6 +626,7 @@ function SectionSourceFileCard({
   onImportEdited: () => void;
   onReject: () => void;
   onResolve: () => void;
+  onReprocess: () => void;
 }) {
   const entries = sectionEntries(file, section);
   const alreadyImported = file.status === "imported";
@@ -702,6 +704,17 @@ function SectionSourceFileCard({
               >
                 Office
               </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <RefreshRoundedIcon />}
+                disabled={busy}
+                onClick={onReprocess}
+                title="ดาวน์โหลดเอกสาร ก.ล.ต. แล้วดึงค่า + หลักฐานใหม่ด้วย parser ล่าสุด"
+                sx={{ textTransform: "none" }}
+              >
+                ดึงใหม่ / Reprocess
+              </Button>
             </>
           ) : null}
           {alreadyImported ? (
@@ -776,12 +789,16 @@ function SectionSourceFileCard({
                   ) : null}
                   <Typography
                     variant="caption"
+                    component="div"
                     sx={{
                       color: evidenceForField?.source_text ? adminColors.text : adminColors.muted,
-                      display: "-webkit-box",
-                      overflow: "hidden",
-                      WebkitBoxOrient: "vertical",
-                      WebkitLineClamp: editable ? 2 : 3,
+                      // Show the full evidence (so the matched figure is always
+                      // visible) instead of clamping to 2–3 lines; cap the height
+                      // and scroll long passages so cards keep a sane size.
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      maxHeight: 132,
+                      overflowY: "auto",
                       lineHeight: 1.4,
                     }}
                     title={evidenceForField?.source_text}
@@ -939,6 +956,36 @@ function SectionSourceFilesReview({
     }
   }
 
+  /**
+   * Re-download the SEC document and re-extract it with the latest parser. This
+   * regenerates the evidence (so a previously-truncated source_text shows the
+   * full matched figure) and keeps the file staged for confirmation — it does
+   * NOT write to the main database unless hands-off auto-import is enabled. Use
+   * the Approve button to confirm the values into the production financials.
+   * Reloads the list afterwards; if auto-import is on and it imported, the
+   * values are pushed into the form too.
+   */
+  async function reprocess(row: SecSourceFileRow) {
+    setBusy(row.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/ipo/upcoming/source-files/${row.id}/reprocess`, {
+        method: "POST",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error ?? "Failed to reprocess");
+      if (json?.imported && json?.file) {
+        const applied = numericFieldsFromSource(json.file as SecSourceFileRow, section);
+        if (Object.keys(applied).length > 0) onApplyFinancialFields(applied);
+      }
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (loading) {
     return (
       <Box
@@ -1033,6 +1080,7 @@ function SectionSourceFilesReview({
                 onImportEdited={() => void review(row, "edited", numericFieldsFromDraft(draft))}
                 onReject={() => void review(row, "rejected")}
                 onResolve={() => void resolve(row)}
+                onReprocess={() => void reprocess(row)}
               />
             );
           })}

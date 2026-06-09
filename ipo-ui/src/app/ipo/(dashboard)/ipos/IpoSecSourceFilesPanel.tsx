@@ -296,13 +296,16 @@ function SourceFileCard({
                   </Stack>
                   <Typography
                     variant="caption"
+                    component="div"
                     sx={{
                       color: evidence?.source_text ? adminColors.text : adminColors.muted,
-                      display: "-webkit-box",
                       mt: 0.75,
-                      overflow: "hidden",
-                      WebkitBoxOrient: "vertical",
-                      WebkitLineClamp: 2,
+                      // Full evidence (so the matched figure is always visible);
+                      // cap height and scroll instead of clamping to 2 lines.
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      maxHeight: 120,
+                      overflowY: "auto",
                     }}
                     title={evidence?.source_text}
                   >

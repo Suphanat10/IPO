@@ -326,6 +326,7 @@ function reprocessReviewReason(
   validationStatus: SecSourceValidationStatus,
   hasNumbers: boolean,
   canImport: boolean,
+  extractionValid: boolean,
 ): string | null {
   if (!hasNumbers) {
     return file.review_reason ?? "no numeric fields extracted";
@@ -334,7 +335,9 @@ function reprocessReviewReason(
   const reasons: string[] = [];
   if (!file.format_ok) reasons.push("unrecognized format/columns");
   if (validationStatus === "failed") reasons.push("sanity validation failed");
-  return reasons.join("; ") || "requires review";
+  if (reasons.length > 0) return reasons.join("; ");
+  // Nothing wrong with the data — it is simply awaiting confirmation.
+  return extractionValid ? AWAITING_CONFIRMATION_REASON : "requires review";
 }
 
 export async function reprocessSourceFile(
@@ -361,11 +364,16 @@ export async function reprocessSourceFile(
   let imported = false;
   let importedFields: string[] = [];
   let status: SecSourceFileStatus = hasNumbers ? "needs_review" : "no_data";
-  const canAutoImport =
-    hasNumbers &&
-    file.format_ok &&
-    validation.status === "passed" &&
-    row.ipo_id !== null;
+  const extractionValid = isAutoImportable({
+    formatOk: file.format_ok,
+    validationStatus: validation.status,
+    hasNumericFields: hasNumbers,
+  });
+  // Reprocess re-extracts (refreshing values + evidence); it does NOT count as
+  // a confirmation. So it only writes to ipo_financials when hands-off import is
+  // explicitly enabled — otherwise the refreshed file stays staged for the user
+  // to confirm via Approve.
+  const canAutoImport = row.ipo_id !== null && secAutoImportEnabled() && extractionValid;
 
   if (canAutoImport) {
     importedFields = await importFsFinancials(row.ipo_id!, fields);
@@ -378,6 +386,7 @@ export async function reprocessSourceFile(
     validation.status,
     hasNumbers,
     canAutoImport,
+    extractionValid,
   );
   const now = new Date().toISOString();
   const { text, values } = buildUpdate(
@@ -507,6 +516,63 @@ export async function reviewSourceFile(
   await query(text, values);
   return { id, review_action: action, imported: true, imported_fields: written };
 }
+
+/**
+ * Decide whether a staged source file may be auto-imported into ipo_financials
+ * WITHOUT human review.
+ *
+ * A file qualifies when it carries at least one numeric field, its format was
+ * recognized, and sanity validation did not FAIL. Crucially, `"skipped"` counts
+ * as acceptable: prose offering documents (DOCX/HTML) have no accounting
+ * identity to check, so the extractor marks them `"skipped"` instead of
+ * `"passed"`. The old gate required `=== "passed"`, which silently parked every
+ * prose-only field — offered_shares, offered_ratio_pct, gross_proceeds,
+ * total_expense, executive_total_pct — in `needs_review` forever. The values
+ * were extracted correctly but never reached ipo_financials, so the UI showed
+ * them as missing (e.g. PETPAL's "หุ้นเสนอขาย / Offered shares").
+ *
+ * This is intentionally generic: it keys off the validation outcome, never off
+ * a specific symbol or file.
+ */
+export function isAutoImportable(args: {
+  formatOk: boolean;
+  validationStatus: SecSourceValidationStatus;
+  hasNumericFields: boolean;
+}): boolean {
+  return (
+    args.hasNumericFields &&
+    args.formatOk &&
+    (args.validationStatus === "passed" || args.validationStatus === "skipped")
+  );
+}
+
+/**
+ * Whether the SEC pipeline may write extracted values straight into the live
+ * `ipo_financials` table.
+ *
+ * OFF by default: scraped figures are staged in `sec_source_files` as
+ * `needs_review` (with full evidence) and only reach the production financials
+ * after a human confirms them in the review UI — nothing from the scraper hits
+ * the main database unverified. Set `SEC_PIPELINE_AUTO_IMPORT=1` (or true/yes/on)
+ * to opt back into hands-off importing.
+ *
+ * `isAutoImportable()` still decides whether an extraction is VALID/complete
+ * enough to import; this flag decides whether that import happens automatically
+ * or waits for confirmation.
+ */
+export function secAutoImportEnabled(): boolean {
+  return ["1", "true", "yes", "on"].includes(
+    String(process.env.SEC_PIPELINE_AUTO_IMPORT ?? "0").toLowerCase(),
+  );
+}
+
+/**
+ * Review reason for a file whose values are valid and complete, but which is
+ * held in needs_review because auto-import is disabled — it is waiting for a
+ * human to confirm it into the production financials, not flagged for an error.
+ */
+export const AWAITING_CONFIRMATION_REASON =
+  "รอยืนยันก่อนนำเข้าฐานข้อมูลหลัก / awaiting confirmation before import";
 
 /**
  * Lightweight sanity validation of parsed financial-statement numbers.
