@@ -76,24 +76,45 @@ export function isDatabaseConfigured(): boolean {
   );
 }
 
+const READ_ONLY_PREFIX = /^(?:select|explain|show|values|table)\b/i;
+
+/**
+ * Best-effort read-only detection so we only auto-retry statements that are
+ * safe to run more than once. A connection can drop *after* the server applied
+ * a write but *before* we receive the ack; retrying that write would duplicate
+ * its side effects. So writes (INSERT/UPDATE/DELETE, or CTEs that wrap them)
+ * are not retried unless the caller opts in via `{ retry: true }` because it
+ * knows the statement is idempotent (e.g. an upsert).
+ */
+function isReadOnlyStatement(text: string): boolean {
+  // Strip leading line/block comments and whitespace before sniffing the verb.
+  const sql = text.replace(/^\s*(?:--[^\n]*\n|\/\*[\s\S]*?\*\/|\s)+/, "");
+  if (READ_ONLY_PREFIX.test(sql)) return true;
+  // A CTE is read-only only when none of its parts perform DML.
+  if (/^with\b/i.test(sql)) return !/\b(?:insert|update|delete|merge)\b/i.test(sql);
+  return false;
+}
+
 export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: unknown[],
+  opts?: { retry?: boolean },
 ): Promise<T[]> {
+  const maxRetries = (opts?.retry ?? isReadOnlyStatement(text)) ? DB_QUERY_RETRIES : 0;
   let lastError: unknown;
-  for (let attempt = 0; attempt <= DB_QUERY_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const result: QueryResult<T> = await pool.query(text, params);
       return result.rows;
     } catch (error) {
       lastError = error;
-      if (!isRetryableConnectionError(error) || attempt >= DB_QUERY_RETRIES) {
+      if (!isRetryableConnectionError(error) || attempt >= maxRetries) {
         throw error;
       }
 
       const delay = DB_RETRY_BASE_DELAY_MS * (attempt + 1);
       console.warn(
-        `Database connection retry ${attempt + 1}/${DB_QUERY_RETRIES} for ${describeDbTarget()}: ${
+        `Database connection retry ${attempt + 1}/${maxRetries} for ${describeDbTarget()}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
@@ -165,7 +186,16 @@ export async function withTransaction<T>(
     await client.query("COMMIT");
     return result;
   } catch (err) {
-    await client.query("ROLLBACK");
+    // Rolling back is itself most likely to fail when the connection is dead —
+    // swallow that so the original error (the real cause) is what propagates.
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackErr) {
+      console.error(
+        "[db] ROLLBACK failed:",
+        rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+      );
+    }
     throw err;
   } finally {
     client.release();
