@@ -2,7 +2,7 @@ import { Alert, Button, Stack } from "@mui/material";
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import Link from "next/link";
 import IpoForm from "../IpoForm";
-import { getIpo, getIpoFieldEvidence } from "@/lib/admin/queries";
+import { getIpo } from "@/lib/admin/queries";
 import { effectiveIpoStatus } from "@/lib/ipo-status";
 import {
   ADMIN_RADIUS,
@@ -14,10 +14,7 @@ export default async function IpoEditPage(props: {
 }) {
   const { id } = await props.params;
 
-  const [{ ipo, financials }, evidence] = await Promise.all([
-    getIpo(Number(id)),
-    getIpoFieldEvidence(Number(id)),
-  ]);
+  const { ipo, financials } = await getIpo(Number(id));
 
   if (!ipo) {
     return (
@@ -49,7 +46,7 @@ export default async function IpoEditPage(props: {
         description={ipo.company_name ?? "ยังไม่มีชื่อบริษัท / No company name recorded yet."}
       />
 
-      <IpoForm ipo={ipo} financials={financials} evidence={evidence} />
+      <IpoForm ipo={ipo} financials={financials} />
     </Stack>
   );
 }

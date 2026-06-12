@@ -18,7 +18,6 @@ import {
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
-import DescriptionRoundedIcon from "@mui/icons-material/DescriptionRounded";
 import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
 import { useRouter } from "next/navigation";
@@ -149,6 +148,28 @@ function formatSourceValue(value: unknown) {
   return String(value);
 }
 
+function splitBilingualLabel(label: string) {
+  const [primary, secondary] = label.split(/\s*\/\s*/, 2);
+  return { primary: primary?.trim() || label, secondary: secondary?.trim() || "" };
+}
+
+function displayReviewNotice(file: SecSourceFileRow) {
+  const message = file.review_reason ?? file.validation_messages?.join(" · ") ?? "";
+  if (!message) return null;
+
+  if (message.includes("awaiting confirmation before import")) {
+    return {
+      title: "รอยืนยันก่อนนำเข้า",
+      detail: "ตรวจค่าที่ดึงได้จากเอกสาร ก.ล.ต. แล้วกดใช้ค่าจาก Scraper เมื่อข้อมูลถูกต้อง",
+    };
+  }
+
+  return {
+    title: "ต้องตรวจสอบข้อมูล",
+    detail: message,
+  };
+}
+
 function statusChipTone(status: string | null) {
   if (status === "imported" || status === "passed") {
     return { color: "#047857", bgcolor: "#dcfce7", borderColor: "#bbf7d0" };
@@ -231,79 +252,10 @@ function numericFieldsFromSource(file: SecSourceFileRow, section: IpoSectionKey)
   return fields;
 }
 
-/** Source proof for a field, pulled from the SEC extraction evidence. */
-function EvidenceCaption({
-  evidence,
-  dense = false,
-  reserveSpace = false,
-}: {
-  evidence?: IpoFieldEvidence;
-  dense?: boolean;
-  reserveSpace?: boolean;
-}) {
-  if (!evidence?.source_text) {
-    return reserveSpace ? <Box sx={{ minHeight: dense ? 34 : 0 }} /> : null;
-  }
-
-  const loc: string[] = [];
-  if (evidence.sheet_name) loc.push(`sheet ${evidence.sheet_name}`);
-  if (evidence.row_number != null) loc.push(`row ${evidence.row_number}`);
-  if (evidence.column_name) loc.push(`col ${evidence.column_name}`);
-  return (
-    <Box
-      sx={{
-        display: "grid",
-        gridTemplateColumns: "16px minmax(0, 1fr)",
-        columnGap: 0.75,
-        alignItems: "start",
-        minHeight: dense ? 34 : undefined,
-      }}
-    >
-      <DescriptionRoundedIcon sx={{ color: "#94a3b8", fontSize: 15, mt: "2px" }} />
-      <Box sx={{ minWidth: 0 }}>
-        <Typography
-          variant="caption"
-          sx={{
-            color: adminColors.text,
-            display: "-webkit-box",
-            WebkitBoxOrient: "vertical",
-            WebkitLineClamp: dense ? 1 : 2,
-            overflow: "hidden",
-            lineHeight: 1.35,
-            fontSize: dense ? 11 : undefined,
-          }}
-          title={evidence.source_text}
-        >
-          {evidence.source_text}
-        </Typography>
-        {loc.length > 0 ? (
-          <Typography
-            variant="caption"
-            sx={{
-              color: adminColors.muted,
-              display: "block",
-              lineHeight: 1.35,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              fontSize: dense ? 10.5 : undefined,
-            }}
-            title={loc.join(" · ")}
-          >
-            {loc.join(" · ")}
-          </Typography>
-        ) : null}
-      </Box>
-    </Box>
-  );
-}
-
 function FinancialNumField(props: {
   label: string;
   value: number | null | undefined;
   onChange: (v: number | null) => void;
-  evidence?: IpoFieldEvidence;
-  reserveEvidence?: boolean;
 }) {
   return (
     <Box
@@ -350,63 +302,55 @@ function FinancialNumField(props: {
           },
         }}
       />
-      <EvidenceCaption evidence={props.evidence} dense reserveSpace={props.reserveEvidence} />
     </Box>
   );
 }
 
 function FinancialFields({
   financials,
-  evidence,
   onPatch,
 }: {
   financials?: Partial<IpoFinancialsRow>;
-  evidence: Record<string, IpoFieldEvidence>;
   onPatch: (key: FinancialNumberKey, value: number | null) => void;
 }) {
   return (
     <Stack spacing={2.25}>
-      {FINANCIAL_FIELD_GROUPS.map((group, index) => {
-        const groupHasEvidence = group.fields.some((field) => evidence[field.key]?.source_text);
-        return (
-          <Box
-            key={group.title}
+      {FINANCIAL_FIELD_GROUPS.map((group, index) => (
+        <Box
+          key={group.title}
+          sx={{
+            pt: index === 0 ? 0 : 2.25,
+            borderTop: index === 0 ? 0 : "1px solid",
+            borderColor: adminColors.borderSoft,
+          }}
+        >
+          <Typography
+            variant="overline"
             sx={{
-              pt: index === 0 ? 0 : 2.25,
-              borderTop: index === 0 ? 0 : "1px solid",
-              borderColor: adminColors.borderSoft,
+              display: "block",
+              color: adminColors.accent,
+              fontSize: 11,
+              fontWeight: 800,
+              letterSpacing: 0,
+              lineHeight: 1.4,
+              mb: 1,
             }}
           >
-            <Typography
-              variant="overline"
-              sx={{
-                display: "block",
-                color: adminColors.accent,
-                fontSize: 11,
-                fontWeight: 800,
-                letterSpacing: 0,
-                lineHeight: 1.4,
-                mb: 1,
-              }}
-            >
-              {group.title}
-            </Typography>
-            <Grid container spacing={1.5} sx={{ alignItems: "stretch" }}>
-              {group.fields.map((field) => (
-                <Grid key={field.key} size={{ xs: 12, sm: 6, lg: 4 }}>
-                  <FinancialNumField
-                    label={field.label}
-                    value={financials?.[field.key]}
-                    onChange={(value) => onPatch(field.key, value)}
-                    evidence={evidence[field.key]}
-                    reserveEvidence={groupHasEvidence}
-                  />
-                </Grid>
-              ))}
-            </Grid>
-          </Box>
-        );
-      })}
+            {group.title}
+          </Typography>
+          <Grid container spacing={1.5} sx={{ alignItems: "stretch" }}>
+            {group.fields.map((field) => (
+              <Grid key={field.key} size={{ xs: 12, sm: 6, lg: 4 }}>
+                <FinancialNumField
+                  label={field.label}
+                  value={financials?.[field.key]}
+                  onChange={(value) => onPatch(field.key, value)}
+                />
+              </Grid>
+            ))}
+          </Grid>
+        </Box>
+      ))}
     </Stack>
   );
 }
@@ -416,24 +360,20 @@ function NumField(props: {
   value: number | null | undefined;
   onChange: (v: number | null) => void;
   step?: string;
-  evidence?: IpoFieldEvidence;
 }) {
   return (
-    <Stack spacing={0.5}>
-      <TextField
-        size="small"
-        fullWidth
-        label={props.label}
-        type="number"
-        slotProps={{ htmlInput: { step: props.step ?? "any" } }}
-        value={props.value ?? ""}
-        onChange={(e) => {
-          const t = e.target.value;
-          props.onChange(t === "" ? null : Number(t));
-        }}
-      />
-      {props.evidence ? <EvidenceCaption evidence={props.evidence} /> : null}
-    </Stack>
+    <TextField
+      size="small"
+      fullWidth
+      label={props.label}
+      type="number"
+      slotProps={{ htmlInput: { step: props.step ?? "any" } }}
+      value={props.value ?? ""}
+      onChange={(e) => {
+        const t = e.target.value;
+        props.onChange(t === "" ? null : Number(t));
+      }}
+    />
   );
 }
 
@@ -632,6 +572,7 @@ function SectionSourceFileCard({
   const alreadyImported = file.status === "imported";
   const sheets = file.recognized_sheets?.length ? file.recognized_sheets : file.sheet_names;
   const editableCount = Object.keys(draft).length;
+  const reviewNotice = displayReviewNotice(file);
 
   return (
     <Box
@@ -733,10 +674,19 @@ function SectionSourceFileCard({
         </Stack>
       </Stack>
 
-      {file.review_reason || file.validation_messages?.length ? (
-        <Box sx={{ px: 1.5, py: 1, borderBottom: "1px solid #edf2f7", bgcolor: "#fff7ed" }}>
-          <Typography variant="caption" sx={{ color: "#92400e", fontWeight: 700 }}>
-            {file.review_reason ?? file.validation_messages?.join(" · ")}
+      {reviewNotice ? (
+        <Box sx={{ px: 1.5, py: 1.1, borderBottom: "1px solid #fed7aa", bgcolor: "#fff7ed" }}>
+          <Typography
+            variant="caption"
+            sx={{ color: "#92400e", display: "block", fontSize: 12.5, fontWeight: 850, lineHeight: 1.35 }}
+          >
+            {reviewNotice.title}
+          </Typography>
+          <Typography
+            variant="caption"
+            sx={{ color: "#78350f", display: "block", fontSize: 12, lineHeight: 1.55, mt: 0.2 }}
+          >
+            {reviewNotice.detail}
           </Typography>
         </Box>
       ) : null}
@@ -745,71 +695,112 @@ function SectionSourceFileCard({
         {entries.map(([key, value]) => {
           const evidenceForField = file.extracted_evidence?.[key];
           const label = isFinancialField(key) ? FINANCIAL_FIELD_LABELS[key] : key;
+          const labelParts = splitBilingualLabel(label);
           const editable = !alreadyImported && key in draft;
+          const formattedValue =
+            isFinancialField(key) && key.endsWith("_pct")
+              ? `${formatSourceValue(value)}%`
+              : formatSourceValue(value);
+          const evidenceText = evidenceForField?.source_text ?? "ยังไม่มีหลักฐานแถวต้นทางจากไฟล์นี้";
+          const meta = evidenceMeta(evidenceForField);
           return (
             <Grid key={key} size={{ xs: 12, md: 6, xl: 4 }}>
               <Box
                 sx={{
-                  minHeight: 148,
-                  p: 1.25,
+                  minHeight: 214,
+                  p: 1.4,
                   borderRight: { md: "1px solid #edf2f7" },
                   borderBottom: "1px solid #edf2f7",
                   bgcolor: editable ? "#ffffff" : "#fbfdff",
                 }}
               >
-                <Stack spacing={0.85}>
+                <Stack spacing={1.1}>
                   <Stack direction="row" spacing={1} sx={{ alignItems: "flex-start", justifyContent: "space-between" }}>
-                    <Typography sx={{ color: adminColors.text, fontSize: 13, fontWeight: 850, lineHeight: 1.35 }}>
-                      {label}
-                    </Typography>
-                    <Typography
-                      sx={{
-                        color: adminColors.text,
-                        fontSize: 13,
-                        fontWeight: 900,
-                        fontVariantNumeric: "tabular-nums",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {isFinancialField(key) && key.endsWith("_pct")
-                        ? `${formatSourceValue(value)}%`
-                        : formatSourceValue(value)}
-                    </Typography>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography sx={{ color: adminColors.text, fontSize: 13.5, fontWeight: 850, lineHeight: 1.35 }}>
+                        {labelParts.primary}
+                      </Typography>
+                      {labelParts.secondary ? (
+                        <Typography variant="caption" sx={{ color: adminColors.muted, display: "block", lineHeight: 1.35, mt: 0.1 }}>
+                          {labelParts.secondary}
+                        </Typography>
+                      ) : null}
+                    </Box>
+                    <Box sx={{ flexShrink: 0, maxWidth: "48%", minWidth: 92, textAlign: "right" }}>
+                      <Typography
+                        variant="caption"
+                        sx={{ color: adminColors.muted, display: "block", fontSize: 11, fontWeight: 750, lineHeight: 1.2 }}
+                      >
+                        ค่าที่ดึงได้
+                      </Typography>
+                      <Typography
+                        sx={{
+                          color: adminColors.text,
+                          fontSize: 14,
+                          fontWeight: 900,
+                          fontVariantNumeric: "tabular-nums",
+                          lineHeight: 1.25,
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {formattedValue}
+                      </Typography>
+                    </Box>
                   </Stack>
                   {editable ? (
                     <TextField
                       size="small"
                       type="number"
                       fullWidth
-                      label="แก้ค่าที่จะนำเข้า / Edit import value"
+                      label="แก้ค่าก่อนนำเข้า"
                       value={draft[key] ?? ""}
+                      helperText="ใส่ตัวเลขที่ต้องการบันทึก"
                       slotProps={{ htmlInput: { step: "any", inputMode: "decimal" } }}
                       onChange={(event) => onDraftChange(key, event.target.value)}
                     />
                   ) : null}
-                  <Typography
-                    variant="caption"
-                    component="div"
-                    sx={{
-                      color: evidenceForField?.source_text ? adminColors.text : adminColors.muted,
-                      // Show the full evidence (so the matched figure is always
-                      // visible) instead of clamping to 2–3 lines; cap the height
-                      // and scroll long passages so cards keep a sane size.
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                      maxHeight: 132,
-                      overflowY: "auto",
-                      lineHeight: 1.4,
-                    }}
-                    title={evidenceForField?.source_text}
-                  >
-                    {evidenceForField?.source_text ?? "ไม่มีหลักฐานแถวต้นทาง / No source row evidence"}
-                  </Typography>
-                  {evidenceMeta(evidenceForField) ? (
-                    <Typography variant="caption" sx={{ color: adminColors.muted, display: "block" }}>
-                      {evidenceMeta(evidenceForField)}
+                  <Box>
+                    <Typography
+                      variant="caption"
+                      sx={{ color: adminColors.muted, display: "block", fontSize: 11.5, fontWeight: 800, mb: 0.45 }}
+                    >
+                      หลักฐานจากเอกสาร
                     </Typography>
-                  ) : null}
+                    <Box
+                      sx={{
+                        border: "1px solid #e2e8f0",
+                        borderRadius: "8px",
+                        bgcolor: "#f8fafc",
+                        px: 1,
+                        py: 0.85,
+                      }}
+                    >
+                      <Typography
+                        variant="caption"
+                        component="div"
+                        sx={{
+                          color: evidenceForField?.source_text ? adminColors.text : adminColors.muted,
+                          whiteSpace: "pre-wrap",
+                          overflowWrap: "anywhere",
+                          maxHeight: 132,
+                          overflowY: "auto",
+                          fontSize: 12,
+                          lineHeight: 1.65,
+                        }}
+                        title={evidenceForField?.source_text}
+                      >
+                        {evidenceText}
+                      </Typography>
+                      {meta ? (
+                        <Typography
+                          variant="caption"
+                          sx={{ color: adminColors.muted, display: "block", fontSize: 11, lineHeight: 1.35, mt: 0.6 }}
+                        >
+                          {meta}
+                        </Typography>
+                      ) : null}
+                    </Box>
+                  </Box>
                 </Stack>
               </Box>
             </Grid>
@@ -1094,12 +1085,10 @@ export default function IpoForm({
   ipo,
   financials,
   isNew,
-  evidence = {},
 }: {
   ipo: Partial<IpoRow>;
   financials?: Partial<IpoFinancialsRow> | null;
   isNew?: boolean;
-  evidence?: Record<string, IpoFieldEvidence>;
 }) {
   const router = useRouter();
   const { underwriters } = useDropdownOptions();
@@ -1416,7 +1405,6 @@ export default function IpoForm({
           ) : null}
           <FinancialFields
             financials={state.financials}
-            evidence={evidence}
             onPatch={(key, value) => patchFin(key, value)}
           />
         </IpoAccordionPanel>

@@ -8,7 +8,6 @@ import type {
   DashboardStats,
   IpoRow,
   IpoFinancialsRow,
-  IpoFieldEvidence,
   MissingFieldsRow,
   RecentUpdateRow,
   SyncJobRow,
@@ -172,39 +171,6 @@ export async function getIpo(id: number): Promise<{
     ipo: ipoRows[0] ? serializeDbRow(ipoRows[0]) : null,
     financials: finRows[0] ? serializeDbRow(finRows[0]) : null,
   };
-}
-
-/**
- * Per-field SEC extraction evidence for an IPO, merged across all staged source
- * files. Imported files win, then most-recent; the first evidence seen per
- * field is kept. Best-effort: never throws so it can't break the edit page.
- */
-export async function getIpoFieldEvidence(
-  ipoId: number,
-): Promise<Record<string, IpoFieldEvidence>> {
-  try {
-    const rows = await query<{
-      extracted_evidence: Record<string, IpoFieldEvidence> | null;
-    }>(
-      `SELECT extracted_evidence FROM sec_source_files
-       WHERE ipo_id = $1 AND extracted_evidence IS NOT NULL
-       ORDER BY (status = 'imported') DESC, detected_at DESC`,
-      [ipoId],
-    );
-    const out: Record<string, IpoFieldEvidence> = {};
-    for (const row of rows) {
-      const evidence = row.extracted_evidence ?? {};
-      for (const [field, item] of Object.entries(evidence)) {
-        if (!(field in out) && item && typeof item === "object" && "source_text" in item) {
-          out[field] = item;
-        }
-      }
-    }
-    return out;
-  } catch (err) {
-    console.error("[db-queries] getIpoFieldEvidence failed:", err);
-    return {};
-  }
 }
 
 export async function getValidations(opts: {
