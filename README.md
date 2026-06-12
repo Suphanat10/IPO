@@ -227,5 +227,45 @@ npm run start      # รันที่ port 3000
 แนะนำรันด้วย process manager (เช่น `pm2 start "npm run start" --name ipo-ui`)
 และวาง reverse proxy (Nginx/Caddy) หน้า port 3000 พร้อม HTTPS
 
+### 4. การจัดการข้อมูล (backup / อัปเดต / re-build)
+
+ลำดับขั้นในหัวข้อ 1–3 เป็น flow ของ **การติดตั้งใหม่บน DB เปล่า** ส่วนการดูแลข้อมูลหลังจากนั้นแยกเป็น 2 กรณี:
+
+#### Backup ก่อนแตะ DB production เสมอ
+```bash
+cd ipo-ui
+node scripts/backup-db.mjs       # dump ข้อมูลออกก่อนรัน migration / import / ลบข้อมูล
+```
+
+#### กรณี A — ติดตั้งใหม่ (DB เปล่า)
+รัน migration ทั้งหมดเรียงลำดับ → `npm run db:import` → `npm run build:data` (ตามหัวข้อ 1–2)
+
+#### กรณี B — อัปเดต DB ที่มีข้อมูลแล้ว
+- รัน **เฉพาะ migration ไฟล์ใหม่** ที่ยังไม่เคยรันบน DB นั้น (เรียงตามเลข) ด้วย `psql`
+- migration ทุกไฟล์เขียนแบบ **idempotent** (`IF EXISTS` / `CREATE OR REPLACE` / `ON CONFLICT`) จึงรันซ้ำได้ปลอดภัย หากไม่แน่ใจว่าไฟล์ไหนรันไปแล้ว
+- หลังแก้ข้อมูลใน DB ให้ **build artifact ใหม่** แล้ว commit:
+  ```bash
+  npm run build:data     # regenerate src/app/data/ipo.json จาก DB
+  ```
+  หน้า analytics สาธารณะ (`/`) อ่านจาก `ipo.json` เท่านั้น — ถ้าไม่ build ใหม่ ข้อมูลบนเว็บจะไม่อัปเดตแม้ DB เปลี่ยนแล้ว
+
+> `ipo.json` เป็น **build artifact** ที่ commit ลง repo — การ deploy บน Vercel จะ build จาก git
+> ฉะนั้นต้อง commit `ipo.json` ที่ regenerate แล้วไปด้วย ไม่งั้น production จะเห็นข้อมูลเก่า
+
+#### Checklist ข้อมูลก่อน deploy
+
+| ตรวจ | รายละเอียด |
+|---|---|
+| ☐ Backup | รัน `backup-db.mjs` ก่อนทุกครั้งที่จะรัน migration หรือ import บน production |
+| ☐ Migration ครบ | ไฟล์ใหม่ใน `db/migrations/` ถูกรันบน DB ปลายทางแล้ว (เรียงตามเลข) |
+| ☐ `ipo.json` ใหม่ | `npm run build:data` หลังข้อมูลเปลี่ยน แล้ว commit |
+| ☐ `DATABASE_URL` | ใช้ **pooler host** (`...pooler.supabase.com:6543`) บน Vercel — host direct เป็น IPv6-only |
+| ☐ `NEXT_PUBLIC_API_CIPHER_KEY` | ค่าฝั่ง deploy ตรงกับตอน build (ไม่งั้น API response ถอดรหัสไม่ได้) |
+| ☐ `CRON_SECRET` | ตั้งบน Vercel ให้ตรง ถ้าใช้ cron scraper ใน [`ipo-ui/vercel.json`](ipo-ui/vercel.json) |
+
+> **ความปลอดภัยของ DB:** ตารางในกลุ่ม scrape/scraper (`scrape_runs`, `scrape_run_items`,
+> `scraper_schedule`, `sec_source_files`) ปิด Row Level Security ไว้ — แอปต่อผ่าน `DATABASE_URL`
+> โดยตรงไม่กระทบ แต่ถ้า host (เช่น Supabase) เปิด anon access ด้วย ควรเปิด RLS + เขียน policy ก่อนใช้งานจริง
+
 ---
 
