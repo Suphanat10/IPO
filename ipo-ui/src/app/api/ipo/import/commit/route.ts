@@ -104,8 +104,6 @@ async function ensureValidationRules() {
       ('price_inconsistency', 'D1 price range is internally inconsistent', 'error', 'ipo'),
       ('upcoming_past_date', 'Upcoming IPO has a listing_date in the past', 'warning', 'ipo'),
       ('duplicate_symbol', 'Duplicate IPO symbols detected', 'error', 'ipo'),
-      ('underwriter_relation_gap', 'Lead underwriter array is not synced to relation table', 'warning', 'ipo'),
-      ('fa_relation_gap', 'FA company array is not synced to relation table', 'warning', 'ipo'),
       ('unmapped_fa', 'FA company is not mapped in fa_normalizations', 'warning', 'ipo')
      ON CONFLICT (key) DO UPDATE SET
       description = EXCLUDED.description,

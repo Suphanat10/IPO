@@ -25,7 +25,6 @@ dotenv.config({ path: resolve(ROOT, ".env") });
 
 const NO_BUILD_LOG = process.argv.includes("--no-build-log");
 const JSON_OUT = process.argv.includes("--json");
-const SYNC_RELATIONS = !process.argv.includes("--no-sync-relations");
 const TRIGGER_TYPE = process.argv.includes("--cron") ? "cron" : "manual";
 
 if (!process.env.DATABASE_URL && (!process.env.POSTGRES_HOST || !process.env.POSTGRES_DB)) {
@@ -87,18 +86,6 @@ async function main() {
   const startedAt = Date.now();
 
   try {
-    if (SYNC_RELATIONS) {
-      await log(runId, "info", "Syncing underwriter/FA relation tables...");
-      try {
-        const synced = await client.query(`SELECT * FROM sync_underwriters_from_ipos()`);
-        for (const row of synced.rows) {
-          await log(runId, "info", `sync:${row.action}: ${row.count}`);
-        }
-      } catch (err) {
-        await log(runId, "warning", `relation sync skipped: ${err.message ?? err}`);
-      }
-    }
-
     await log(runId, "info", "Running run_validations()...");
     const { rows } = await client.query(`SELECT * FROM run_validations()`);
 

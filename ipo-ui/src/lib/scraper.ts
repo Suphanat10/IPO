@@ -638,22 +638,6 @@ async function upsertToPostgres(
     }
   }
 
-  // Sync relationship tables only when IPO core rows changed.
-  if (summary.inserted + summary.updated > 0) {
-    try {
-      const syncRows = await query<{ action: string; count: string }>(
-        "SELECT * FROM sync_underwriters_from_ipos()",
-      );
-      for (const row of syncRows) {
-        log.log(`  [DB] sync ${row.action}=${row.count}`);
-      }
-    } catch (e) {
-      log.warn(`  [DB] relation sync skipped: ${e}`);
-    }
-  } else {
-    log.log("  [DB] relation sync skipped: no IPO core changes");
-  }
-
   log.log(`DB upsert done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
   // Build SEC pipeline targets: IPOs we have an id + filing URL for.

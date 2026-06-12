@@ -309,16 +309,6 @@ async function main() {
   console.log(`\r  ${finOk}/${finPayloadList.length} financials`);
 
   // ─── 4. validations ────────────────────────────────────────
-  console.log("→ Syncing underwriter/FA relation tables…");
-  try {
-    const { rows: synced } = await pool.query("SELECT * FROM sync_underwriters_from_ipos()");
-    for (const row of synced || []) {
-      console.log(`  ${String(row.action).padEnd(28)} ${row.count}`);
-    }
-  } catch (err) {
-    console.warn(`! relation sync skipped: ${err.message}`);
-  }
-
   console.log("→ Running validations…");
   try {
     const { rows: v } = await pool.query("SELECT * FROM run_validations()");

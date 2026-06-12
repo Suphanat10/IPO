@@ -1300,23 +1300,6 @@ def _compute_diff(before: dict | None, after: dict) -> dict:
     return diff
 
 
-def _sync_relationship_tables(cur) -> None:
-    """Refresh normalized underwriter/FA junction tables after raw array updates."""
-    cur.execute("SAVEPOINT relation_sync")
-    try:
-        cur.execute("SELECT * FROM sync_underwriters_from_ipos()")
-        rows = cur.fetchall()
-        for row in rows:
-            action = row.get("action") if isinstance(row, dict) else row[0]
-            count = row.get("count") if isinstance(row, dict) else row[1]
-            log.info("  [DB] sync %s=%s", action, count)
-    except Exception as e:
-        cur.execute("ROLLBACK TO SAVEPOINT relation_sync")
-        log.warning("  [DB] relation sync skipped: %s", e)
-    finally:
-        cur.execute("RELEASE SAVEPOINT relation_sync")
-
-
 def upsert_to_postgres(records: list[dict]) -> dict:
     """Upsert transformed IPO records into PostgreSQL, returning per-symbol actions."""
     summary = {"inserted": 0, "updated": 0, "unchanged": 0, "failed": 0}
@@ -1436,7 +1419,6 @@ def upsert_to_postgres(records: list[dict]) -> dict:
                         conn.rollback()
                 continue
 
-        _sync_relationship_tables(cur)
         conn.commit()
     except Exception:
         conn.rollback()
