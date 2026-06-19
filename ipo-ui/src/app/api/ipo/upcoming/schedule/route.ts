@@ -1,4 +1,4 @@
-import { query, isDatabaseConfigured } from "@/lib/db";
+import { query, isDatabaseConfigured, withTransaction } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -63,18 +63,27 @@ export async function PUT(request: Request) {
     seen.add(key);
   }
 
-  await query("DELETE FROM scraper_schedule");
+  const rows = await withTransaction(async (client) => {
+    await client.query("DELETE FROM scraper_schedule");
 
-  for (const slot of body.slots) {
-    await query(
-      "INSERT INTO scraper_schedule (hour, minute, enabled, updated_by, updated_at) VALUES ($1, $2, $3, $4, now())",
-      [slot.hour, slot.minute, slot.enabled, "admin"],
+    const values: unknown[] = [];
+    const placeholders = body.slots.map((slot, index) => {
+      const offset = index * 4;
+      values.push(slot.hour, slot.minute, slot.enabled, "admin");
+      return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, now())`;
+    });
+
+    await client.query(
+      `INSERT INTO scraper_schedule (hour, minute, enabled, updated_by, updated_at)
+       VALUES ${placeholders.join(", ")}`,
+      values,
     );
-  }
 
-  const rows = await query<ScheduleRow>(
-    "SELECT id, hour, minute, enabled, updated_by, updated_at FROM scraper_schedule ORDER BY hour, minute",
-  );
+    const result = await client.query<ScheduleRow>(
+      "SELECT id, hour, minute, enabled, updated_by, updated_at FROM scraper_schedule ORDER BY hour, minute",
+    );
+    return result.rows;
+  });
 
   return Response.json({ slots: rows });
 }

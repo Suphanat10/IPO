@@ -58,22 +58,38 @@ function parseCSV(text) {
   });
 }
 
+// Strip stray quote/backslash artifacts and reject punctuation-only tokens so
+// junk like "\", "'", "-" or a name with a trailing "\" never reaches the DB.
+function cleanEntityName(s) {
+  return String(s ?? "")
+    .replace(/[\\'"]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s.,/\-–]+|[\s.,/\-–]+$/g, "")
+    .trim();
+}
+
 function parsePyList(s) {
   if (!s) return null;
   const trimmed = s.trim();
   if (!trimmed || trimmed === "nan" || trimmed === "[]") return null;
-  if (!trimmed.startsWith("[")) return [trimmed];
+  if (!trimmed.startsWith("[")) {
+    const one = cleanEntityName(trimmed);
+    return one ? [one] : null;
+  }
   const inner = trimmed.replace(/^\[|\]$/g, "");
   if (!inner.trim()) return null;
   const items = [];
   let buf = "", inStr = false, quote = "";
   for (let i = 0; i < inner.length; i++) {
     const c = inner[i];
+    // Treat a backslash-escaped quote ("\'") as a literal quote inside the name
+    // rather than a string terminator, so escaped names round-trip cleanly.
+    if (inStr && c === "\\" && inner[i + 1] === quote) { buf += quote; i++; continue; }
     if (!inStr && (c === "'" || c === '"')) { inStr = true; quote = c; continue; }
     if (inStr && c === quote) { inStr = false; items.push(buf); buf = ""; continue; }
     if (inStr) buf += c;
   }
-  const cleaned = items.map((s) => s.trim()).filter(Boolean);
+  const cleaned = items.map(cleanEntityName).filter(Boolean);
   return cleaned.length ? cleaned : null;
 }
 
@@ -81,7 +97,7 @@ function splitFlat(s) {
   if (!s) return null;
   const trimmed = s.trim();
   if (!trimmed || trimmed === "nan") return null;
-  const parts = trimmed.split(/[\/,]/).map((x) => x.trim()).filter(Boolean);
+  const parts = trimmed.split(/[\/,]/).map(cleanEntityName).filter(Boolean);
   return parts.length ? parts : null;
 }
 

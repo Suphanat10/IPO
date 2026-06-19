@@ -3,10 +3,13 @@ import { query } from "@/lib/db";
 import { toDateOnly } from "@/lib/date-format";
 import {
   COMPLETENESS_FIELDS,
+  IMPORT_CSV_MAX_ROWS,
+  IMPORT_PREVIEW_MAX_BODY_BYTES,
   normalizeBaseRow,
   normalizeFinRow,
   normalizeSectorRow,
   type CsvType,
+  type SupportedCsvType,
 } from "@/lib/csv-import";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +27,7 @@ interface PreviewRow {
 
 function detectMissing(
   normalized: Record<string, unknown>,
-  type: Exclude<CsvType, "unknown">,
+  type: SupportedCsvType,
 ): string[] {
   return COMPLETENESS_FIELDS[type].filter((f) => {
     const v = normalized[f];
@@ -68,6 +71,14 @@ function serializePreviewRow(row: Record<string, unknown>) {
 }
 
 export async function POST(req: Request) {
+  const contentLength = Number(req.headers.get("content-length") ?? 0);
+  if (Number.isFinite(contentLength) && contentLength > IMPORT_PREVIEW_MAX_BODY_BYTES) {
+    return NextResponse.json(
+      { error: `Preview request too large. Limit is ${IMPORT_PREVIEW_MAX_BODY_BYTES} bytes.` },
+      { status: 413 },
+    );
+  }
+
   let body: {
     type: CsvType;
     rows: Record<string, string>[];
@@ -93,6 +104,12 @@ export async function POST(req: Request) {
   }
   if (!Array.isArray(rows)) {
     return NextResponse.json({ error: "rows must be an array" }, { status: 400 });
+  }
+  if (rows.length > IMPORT_CSV_MAX_ROWS) {
+    return NextResponse.json(
+      { error: `Too many rows. Limit is ${IMPORT_CSV_MAX_ROWS} rows per preview.` },
+      { status: 413 },
+    );
   }
 
   if (type === "fa_norm") {
@@ -199,7 +216,7 @@ export async function POST(req: Request) {
     const current = currentMap.get(symbolRaw.toUpperCase()) ?? null;
     const missing_fields = detectMissing(
       normalized,
-      type as Exclude<CsvType, "unknown">,
+      type as SupportedCsvType,
     );
 
     if (type !== "base" && !parentSymbols.has(symbolRaw.toUpperCase())) {

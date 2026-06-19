@@ -16,13 +16,8 @@ import QueryStatsRoundedIcon from "@mui/icons-material/QueryStatsRounded";
 import SectionCard from "../components/SectionCard";
 import LabeledField from "../components/LabeledField";
 import SummaryDataGrid from "../components/SummaryDataGrid";
-import type { ViewKey } from "../lib/types";
-import {
-  faCompaniesSummary,
-  faPersonsSummary,
-  leadCoSummary,
-  leadUnderwritersSummary,
-} from "../lib/mockData";
+import type { SummaryRow, ViewKey } from "../lib/types";
+import { useSummary, useLeadCo } from "../lib/ipoDataClient";
 import { useAnalysis } from "../lib/AnalysisContext";
 
 const VIEW_KEYS: ViewKey[] = [
@@ -36,27 +31,9 @@ type TabSpec = {
   key: string;
   title: string;
   nameLabel: string;
-  rows: typeof faPersonsSummary;
+  rows: SummaryRow[];
   showCo?: boolean;
 };
-
-const TABS: TabSpec[] = [
-  { key: "fa_person", title: "FA Person", nameLabel: "FA Person", rows: faPersonsSummary },
-  { key: "fa_company", title: "FA Company", nameLabel: "FA Company", rows: faCompaniesSummary },
-  {
-    key: "lead",
-    title: "Lead Underwriter",
-    nameLabel: "Lead Underwriter",
-    rows: leadUnderwritersSummary,
-  },
-  {
-    key: "lead_co",
-    title: "Lead-Co",
-    nameLabel: "Lead Underwriter",
-    rows: leadCoSummary,
-    showCo: true,
-  },
-];
 
 function parsePositiveInt(v: string): { ok: boolean; val: number | null; err?: string } {
   const t = v.trim();
@@ -68,6 +45,28 @@ function parsePositiveInt(v: string): { ok: boolean; val: number | null; err?: s
 
 export default function HistoricalPerformance() {
   const { historical, setHistorical } = useAnalysis();
+  const summaryState = useSummary();
+  const leadCoState = useLeadCo();
+  const TABS = React.useMemo<TabSpec[]>(() => {
+    const s = summaryState.data;
+    return [
+      { key: "fa_person", title: "FA Person", nameLabel: "FA Person", rows: s?.faPersons ?? [] },
+      { key: "fa_company", title: "FA Company", nameLabel: "FA Company", rows: s?.faCompanies ?? [] },
+      {
+        key: "lead",
+        title: "Lead Underwriter",
+        nameLabel: "Lead Underwriter",
+        rows: s?.leadUnderwriters ?? [],
+      },
+      {
+        key: "lead_co",
+        title: "Lead-Co",
+        nameLabel: "Lead Underwriter",
+        rows: leadCoState.data?.leadCo ?? [],
+        showCo: true,
+      },
+    ];
+  }, [summaryState.data, leadCoState.data]);
   const [minInput, setMinInput] = React.useState(
     historical.minIpo != null ? String(historical.minIpo) : "",
   );
@@ -98,11 +97,25 @@ export default function HistoricalPerformance() {
   }, [minInput, maxInput, setHistorical]);
 
   const active = TABS[activeTab];
-  const filteredCount = active.rows.filter((r) => {
-    if (historical.minIpo != null && r.ipo_count < historical.minIpo) return false;
-    if (historical.maxIpo != null && r.ipo_count > historical.maxIpo) return false;
-    return true;
-  }).length;
+
+  if (summaryState.loading || summaryState.error) {
+    return (
+      <SectionCard
+        title="Historical Performance"
+        subtitle="กรุณาระบุจำนวน IPO ขั้นต่ำ เพื่อแสดงข้อมูลสถิติ"
+        icon={<QueryStatsRoundedIcon fontSize="small" />}
+      >
+        <Typography
+          variant="body2"
+          color={summaryState.error ? "error" : "text.secondary"}
+        >
+          {summaryState.error
+            ? "โหลดข้อมูลไม่สำเร็จ ลองรีเฟรชหน้าอีกครั้ง"
+            : "กำลังโหลดข้อมูล…"}
+        </Typography>
+      </SectionCard>
+    );
+  }
 
   return (
     <SectionCard

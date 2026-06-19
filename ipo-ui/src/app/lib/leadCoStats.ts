@@ -1,5 +1,5 @@
 import type { RawIpoRow } from "./mockData";
-import { leadCoIndex, rawIpoBySymbol } from "./mockData";
+import { getLeadCoIndex, getRawIpoBySymbol } from "./analyticsData";
 
 export type DayReturns = {
   d1: number | null;
@@ -90,7 +90,10 @@ export function parseCoList(raw: string | null | undefined): string[] {
   return raw
     .split(/[,，;]/)
     .map((s) => s.trim())
-    .filter(Boolean);
+    // Keep only real names: drop empty tokens and punctuation-only placeholders
+    // like "." / "-" / "—" that filings use to mean "no data" (a lone "." was
+    // showing up as a chip in the Co Underwriter field).
+    .filter((s) => /[\p{L}\p{N}]/u.test(s));
 }
 
 // Fuzzy-ish contains: the stored name contains the query OR vice versa (case-insensitive, whitespace-insensitive)
@@ -104,7 +107,7 @@ function looseIncludes(stored: string, query: string): boolean {
 export function matchedLeadCoSymbols(lead: string, coList: string[]): string[] {
   if (!lead || coList.length === 0) return [];
   const found = new Set<string>();
-  for (const [sym, l, c] of leadCoIndex) {
+  for (const [sym, l, c] of getLeadCoIndex()) {
     if (!looseIncludes(l, lead)) continue;
     if (coList.some((co) => looseIncludes(c, co))) {
       found.add(sym);
@@ -116,7 +119,7 @@ export function matchedLeadCoSymbols(lead: string, coList: string[]): string[] {
 export function leadOnlySymbols(lead: string): string[] {
   if (!lead) return [];
   const found = new Set<string>();
-  for (const [sym, l] of leadCoIndex) {
+  for (const [sym, l] of getLeadCoIndex()) {
     if (looseIncludes(l, lead)) found.add(sym);
   }
   return Array.from(found);
@@ -125,13 +128,14 @@ export function leadOnlySymbols(lead: string): string[] {
 export function coOnlySymbols(co: string): string[] {
   if (!co) return [];
   const found = new Set<string>();
-  for (const [sym, , c] of leadCoIndex) {
+  for (const [sym, , c] of getLeadCoIndex()) {
     if (looseIncludes(c, co)) found.add(sym);
   }
   return Array.from(found);
 }
 
 function buildStats(symbols: string[]): LeadCoMatchedStats {
+  const rawIpoBySymbol = getRawIpoBySymbol();
   const rows = symbols
     .map((s) => rawIpoBySymbol.get(s))
     .filter((r): r is RawIpoRow => !!r);

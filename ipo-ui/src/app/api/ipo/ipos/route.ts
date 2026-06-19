@@ -1,6 +1,10 @@
-﻿import { query, buildInsertReturning, isDatabaseConfigured } from "@/lib/db";
+﻿import {
+  buildInsertReturning,
+  isDatabaseConfigured,
+  withTransaction,
+} from "@/lib/db";
 import { effectiveIpoStatus, syncMaturedIpoStatuses } from "@/lib/ipo-status";
-import { getIposList } from "@/lib/admin/queries";
+import { getIposList, invalidateIpoFilterOptionsCache } from "@/lib/admin/queries";
 import { scheduleAutoBuild } from "@/lib/buildTrigger";
 import {
   isInvalidNumericError,
@@ -29,6 +33,10 @@ const IPO_NUMERIC_FIELDS = [
   "close_d1", "close_d2", "close_d3", "close_d4", "close_d5",
   "close_1w", "close_1m", "close_3m", "close_6m",
 ] as const;
+
+/** Thrown inside the create transaction when the IPO insert returns no row,
+ *  so the catch can roll back and answer 400 instead of a generic 500. */
+class IpoInsertFailedError extends Error {}
 
 function pick<T extends Record<string, unknown>>(obj: T, keys: readonly string[]) {
   const out: Record<string, unknown> = {};
@@ -132,28 +140,41 @@ export async function POST(request: Request) {
       ipoData.listing_date as string | Date | null | undefined,
     );
 
-    const { text, values } = buildInsertReturning("ipos", ipoData, "id");
-    const rows = await query<{ id: number }>(text, values);
-    const ipo = rows[0];
+    // Insert the IPO and its financials atomically: a financials failure must
+    // roll the IPO back rather than leave a half-written record the caller was
+    // told succeeded. The empty-row guard signals via a sentinel so the catch
+    // below can map it to a 400 after the transaction rolled back.
+    let ipo: { id: number };
+    try {
+      ipo = await withTransaction(async (client) => {
+        const { text, values } = buildInsertReturning("ipos", ipoData, "id");
+        const { rows } = await client.query<{ id: number }>(text, values);
+        const created = rows[0];
+        if (!created) throw new IpoInsertFailedError();
 
-    if (!ipo) {
-      return Response.json({ error: "Failed to create IPO" }, { status: 400 });
-    }
-
-    if (finData) {
-      const hasAny = Object.values(finData).some((v) => v != null);
-      if (hasAny) {
-        const finPayload = { ...finData, ipo_id: ipo.id };
-        try {
-          const { text: finText, values: finValues } = buildInsertReturning("ipo_financials", finPayload, "ipo_id");
-          await query(finText, finValues);
-        } catch (err) {
-          console.error("Warning: IPO created but financials insert failed:", (err as Error).message);
+        if (finData) {
+          const hasAny = Object.values(finData).some((v) => v != null);
+          if (hasAny) {
+            const finPayload = { ...finData, ipo_id: created.id };
+            const { text: finText, values: finValues } = buildInsertReturning(
+              "ipo_financials",
+              finPayload,
+              "ipo_id",
+            );
+            await client.query(finText, finValues);
+          }
         }
+        return created;
+      });
+    } catch (err) {
+      if (err instanceof IpoInsertFailedError) {
+        return Response.json({ error: "Failed to create IPO" }, { status: 400 });
       }
+      throw err;
     }
 
     await syncMaturedIpoStatuses();
+    invalidateIpoFilterOptionsCache();
 
     scheduleAutoBuild(`create:${body.symbol}`);
     return Response.json({ id: ipo.id, symbol: body.symbol }, { status: 201 });

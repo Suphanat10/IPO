@@ -1,0 +1,33 @@
+# Dependencies / build output (rebuilt inside the image)
+node_modules
+.next
+out
+
+# Local env & secrets — pass these at build/run time instead
+.env
+.env.*
+!.env.example
+
+# VCS / editor / OS
+.git
+.gitignore
+.vscode
+.idea
+*.log
+.DS_Store
+
+# Tests & tooling not needed in the production image
+coverage
+**/*.test.ts
+**/*.test.tsx
+jest.config.*
+jest.setup.*
+
+# Docker files themselves
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# QA reports not needed in the production image
+# (the committed src/app/data/ipo.json is kept — it is bundled at build time)
+reports

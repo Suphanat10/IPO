@@ -1,5 +1,6 @@
 ﻿import { query, buildInsert, buildUpdate, isDatabaseConfigured } from "@/lib/db";
 import { toDateOnly } from "@/lib/date-format";
+import { invalidateIpoFilterOptionsCache } from "@/lib/admin/queries";
 import { applyEffectiveIpoStatus, effectiveIpoStatus, syncMaturedIpoStatuses } from "@/lib/ipo-status";
 import { scheduleAutoBuild } from "@/lib/buildTrigger";
 import {
@@ -90,8 +91,6 @@ export async function GET(
   if (numId == null) {
     return Response.json({ error: "Invalid IPO id" }, { status: 400 });
   }
-
-  await syncMaturedIpoStatuses();
 
   const [ipoRows, finRows] = await Promise.all([
     query("SELECT * FROM ipos WHERE id = $1 LIMIT 1", [numId]),
@@ -213,6 +212,7 @@ export async function PATCH(
     }
 
     await syncMaturedIpoStatuses();
+    invalidateIpoFilterOptionsCache();
 
     scheduleAutoBuild(`update:${numId}`);
     return Response.json({ id: numId, updated: true });
@@ -249,6 +249,7 @@ export async function DELETE(
     if (rows.length === 0) {
       return Response.json({ error: "Not found" }, { status: 404 });
     }
+    invalidateIpoFilterOptionsCache();
     scheduleAutoBuild(`delete:${id}`);
     return Response.json({ id: numId, deleted: true });
   } catch (err) {

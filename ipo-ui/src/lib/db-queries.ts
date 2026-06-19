@@ -1,6 +1,6 @@
 import { query } from "@/lib/db";
 import { toDateOnly } from "@/lib/date-format";
-import { applyEffectiveIpoStatus, syncMaturedIpoStatuses } from "@/lib/ipo-status";
+import { applyEffectiveIpoStatus, getBangkokDateString } from "@/lib/ipo-status";
 import type {
   BuildLog,
   BuildRun,
@@ -32,8 +32,73 @@ function serializeDbRows<T extends object>(rows: T[]): T[] {
   return rows.map(serializeDbRow);
 }
 
+const IPO_FILTER_OPTIONS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type IpoFilterOptions = {
+  industries: string[];
+  sectors: string[];
+};
+
+function effectiveStatusSql(todayPlaceholder: string) {
+  return `CASE
+    WHEN status = 'cancelled' THEN 'cancelled'
+    WHEN listing_date IS NOT NULL AND listing_date <= ${todayPlaceholder} THEN 'listed'
+    WHEN status = 'listed' THEN 'listed'
+    ELSE 'upcoming'
+  END`;
+}
+
+let ipoFilterOptionsCache: { value: IpoFilterOptions; expiresAt: number } | null = null;
+let ipoFilterOptionsInFlight: Promise<IpoFilterOptions> | null = null;
+let ipoFilterOptionsCacheVersion = 0;
+
+export function invalidateIpoFilterOptionsCache() {
+  ipoFilterOptionsCacheVersion++;
+  ipoFilterOptionsCache = null;
+  ipoFilterOptionsInFlight = null;
+}
+
+async function getIpoFilterOptions(): Promise<IpoFilterOptions> {
+  const now = Date.now();
+  if (ipoFilterOptionsCache && ipoFilterOptionsCache.expiresAt > now) {
+    return ipoFilterOptionsCache.value;
+  }
+
+  if (ipoFilterOptionsInFlight) return ipoFilterOptionsInFlight;
+
+  const cacheVersion = ipoFilterOptionsCacheVersion;
+  const pending = Promise.all([
+    query<{ industry: string }>(
+      "SELECT DISTINCT industry FROM ipos WHERE industry IS NOT NULL AND industry <> '' ORDER BY industry",
+    ),
+    query<{ sector: string }>(
+      "SELECT DISTINCT sector FROM ipos WHERE sector IS NOT NULL AND sector <> '' ORDER BY sector",
+    ),
+  ])
+    .then(([industryRows, sectorRows]) => {
+      const value = {
+        industries: industryRows.map((row) => row.industry),
+        sectors: sectorRows.map((row) => row.sector),
+      };
+      if (cacheVersion === ipoFilterOptionsCacheVersion) {
+        ipoFilterOptionsCache = {
+          value,
+          expiresAt: Date.now() + IPO_FILTER_OPTIONS_CACHE_TTL_MS,
+        };
+      }
+      return value;
+    })
+    .finally(() => {
+      if (ipoFilterOptionsInFlight === pending) {
+        ipoFilterOptionsInFlight = null;
+      }
+    });
+
+  ipoFilterOptionsInFlight = pending;
+  return ipoFilterOptionsInFlight;
+}
+
 export async function getDashboardStats(): Promise<DashboardStats | null> {
-  await syncMaturedIpoStatuses();
   const rows = await query<DashboardStats>("SELECT * FROM v_dashboard_stats LIMIT 1");
   return rows[0] ? serializeDbRow(rows[0]) : null;
 }
@@ -47,7 +112,6 @@ export async function getRecentBuilds(limit = 5): Promise<BuildRun[]> {
 }
 
 export async function getUpcomingIpos(): Promise<UpcomingRow[]> {
-  await syncMaturedIpoStatuses();
   const rows = await query<UpcomingRow>(
     `SELECT v.*, i.company_name_th,
             (i.fa_companies IS NOT NULL AND array_length(i.fa_companies,1) > 0) AS has_fa,
@@ -70,7 +134,6 @@ export async function getIposList(opts: {
   limit?: number;
   offset?: number;
 } = {}): Promise<{ rows: CompletenessRow[]; total: number; industries?: string[]; sectors?: string[] }> {
-  await syncMaturedIpoStatuses();
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
 
@@ -79,8 +142,10 @@ export async function getIposList(opts: {
   let paramIdx = 0;
 
   if (opts.status) {
+    params.push(getBangkokDateString());
+    const todayIdx = ++paramIdx;
     params.push(opts.status);
-    conditions.push(`status = $${++paramIdx}`);
+    conditions.push(`${effectiveStatusSql(`$${todayIdx}`)} = $${++paramIdx}`);
   }
   if (opts.search) {
     const pattern = `%${opts.search}%`;
@@ -116,7 +181,7 @@ export async function getIposList(opts: {
   params.push(offset);
   const offsetIdx = ++paramIdx;
 
-  const [rawRows, countResult] = await Promise.all([
+  const [rawRows, countResult, filterOptions] = await Promise.all([
     query<CompletenessRow>(
       `SELECT * FROM v_ipo_completeness ${where} ORDER BY listing_date DESC NULLS LAST LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
       params,
@@ -125,6 +190,7 @@ export async function getIposList(opts: {
       `SELECT count(*)::text AS count FROM v_ipo_completeness ${where}`,
       params.slice(0, paramIdx - 2),
     ),
+    getIpoFilterOptions(),
   ]);
 
   const total = parseInt(countResult[0]?.count ?? "0", 10);
@@ -145,24 +211,18 @@ export async function getIposList(opts: {
     }
   }
 
-  const allIpos = await query<{ industry: string | null; sector: string | null }>(
-    "SELECT industry, sector FROM ipos",
-  );
-  const industries = [...new Set(
-    allIpos.map((r) => r.industry).filter(Boolean) as string[],
-  )].sort();
-  const sectors = [...new Set(
-    allIpos.map((r) => r.sector).filter(Boolean) as string[],
-  )].sort();
-
-  return { rows, total, industries, sectors };
+  return {
+    rows,
+    total,
+    industries: filterOptions.industries,
+    sectors: filterOptions.sectors,
+  };
 }
 
 export async function getIpo(id: number): Promise<{
   ipo: IpoRow | null;
   financials: IpoFinancialsRow | null;
 }> {
-  await syncMaturedIpoStatuses();
   const [ipoRows, finRows] = await Promise.all([
     query<IpoRow>("SELECT * FROM ipos WHERE id = $1 LIMIT 1", [id]),
     query<IpoFinancialsRow>("SELECT * FROM ipo_financials WHERE ipo_id = $1 LIMIT 1", [id]),
@@ -203,14 +263,15 @@ export async function getMissingFields(opts: {
   status?: string;
   limit?: number;
 } = {}): Promise<MissingFieldsRow[]> {
-  await syncMaturedIpoStatuses();
   const conditions: string[] = ["completeness_pct < 100"];
   const params: unknown[] = [];
   let paramIdx = 0;
 
   if (opts.status) {
+    params.push(getBangkokDateString());
+    const todayIdx = ++paramIdx;
     params.push(opts.status);
-    conditions.push(`status = $${++paramIdx}`);
+    conditions.push(`${effectiveStatusSql(`$${todayIdx}`)} = $${++paramIdx}`);
   }
 
   const lim = opts.limit ?? 1000;
@@ -227,7 +288,6 @@ export async function getMissingFields(opts: {
 }
 
 export async function getRecentUpdates(limit = 50): Promise<RecentUpdateRow[]> {
-  await syncMaturedIpoStatuses();
   const rows = await query<RecentUpdateRow>(
     "SELECT * FROM v_recent_updates LIMIT $1",
     [limit],

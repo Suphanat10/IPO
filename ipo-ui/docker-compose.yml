@@ -1,0 +1,57 @@
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ipo-ui:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Bangkok
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-ipo}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ── Bundled local Postgres ─────────────────────────────────────────────────
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-ipo}
+      TZ: Asia/Bangkok
+      PGTZ: Asia/Bangkok
+    volumes:
+      # Persistent database DATA. A named volume (not a host bind mount) is used
+      # on purpose: Postgres needs Unix ownership/perms on its data dir, which
+      # bind mounts mishandle on Windows/macOS. Back up with scripts/backup-db.mjs
+      # or `docker compose exec db pg_dump`.
+      - pgdata:/var/lib/postgresql/data
+      # Schema is created once, on first init only, in filename order.
+      # Lives outside the build context but is mounted at runtime.
+      - ../db/migrations:/docker-entrypoint-initdb.d:ro
+    # Expose to the host only if you need psql access; comment out otherwise.
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ipo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  # Survives `docker compose down` (removed only with `down -v`).
+  pgdata:

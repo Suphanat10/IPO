@@ -30,15 +30,22 @@ import ErrorOutlineIcon from "@mui/icons-material/ErrorOutlineOutlined";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
+import MenuBookRoundedIcon from "@mui/icons-material/MenuBookRounded";
 import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import {
   COMPLETENESS_FIELDS,
+  detectCsvTypes,
   detectSchema,
+  IMPORT_CSV_MAX_FILE_BYTES,
+  IMPORT_CSV_MAX_ROWS,
+  IMPORT_PREVIEW_MAX_BODY_BYTES,
   num,
   parseCSV,
+  schemaForCombined,
   type CsvType,
   type DetectedSchema,
+  type SupportedCsvType,
 } from "@/lib/csv-import";
 import {
   ADMIN_RADIUS,
@@ -84,6 +91,11 @@ interface ImportItem {
   preview: PreviewResponse | null;
   error: string | null;
   autoCheck: AutoCheckResult | null;
+  // Set when the file is a combined CSV (base + financials + sector in one file).
+  // Holds the detected sections and, after preview, each section's own rows so
+  // commit can split the single UI item back into per-type commit payloads.
+  combinedTypes?: SupportedCsvType[];
+  combinedParts?: Partial<Record<SupportedCsvType, PreviewRow[]>>;
 }
 
 interface CommitRun {
@@ -131,7 +143,8 @@ const TYPE_ORDER: Record<CsvType, number> = {
   financials: 1,
   sector: 2,
   fa_norm: 3,
-  unknown: 4,
+  combined: 4,
+  unknown: 5,
 };
 
 const ALL_FIELDS: Record<string, string[]> = {
@@ -155,9 +168,11 @@ function rowKey(itemId: string, rowIndex: number) {
   return `${itemId}:${rowIndex}`;
 }
 
-function isSupportedType(type: CsvType): type is Exclude<CsvType, "unknown"> {
+function isSupportedType(type: CsvType): type is SupportedCsvType {
   return type === "base" || type === "financials" || type === "sector" || type === "fa_norm";
 }
+
+const COMBINED_ORDER: SupportedCsvType[] = ["base", "financials", "sector"];
 
 function isSelectable(row: PreviewRow) {
   return row.action === "new" || row.action === "update";
@@ -339,6 +354,137 @@ function runAutoCheck(rows: Record<string, string>[], type: CsvType): AutoCheckR
   };
 }
 
+// Merge per-section auto-checks (base/financials/sector) of a combined CSV into
+// one result: per-row completeness is averaged, missing fields/warnings unioned.
+function runCombinedAutoCheck(
+  rows: Record<string, string>[],
+  types: SupportedCsvType[],
+): AutoCheckResult | null {
+  const subs = types
+    .map((t) => runAutoCheck(rows, t))
+    .filter((ac): ac is AutoCheckResult => ac != null);
+  if (subs.length === 0) return null;
+
+  const baseAc = types.includes("base") ? runAutoCheck(rows, "base") : null;
+
+  const checkRows: AutoCheckRow[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    let compSum = 0;
+    let compCount = 0;
+    const missingFields: string[] = [];
+    const warnings: string[] = [];
+    let hasData = false;
+    for (const ac of subs) {
+      const r = ac.rows[i];
+      if (!r) continue;
+      compSum += r.completeness;
+      compCount++;
+      missingFields.push(...r.missingFields);
+      warnings.push(...r.warnings);
+      if (r.hasData) hasData = true;
+    }
+    checkRows.push({
+      index: i,
+      symbol: (rows[i].symbol ?? "").trim(),
+      missingFields,
+      completeness: compCount > 0 ? compSum / compCount : 0,
+      autoStatus: baseAc?.rows[i]?.autoStatus ?? null,
+      warnings,
+      hasData,
+    });
+  }
+
+  const fieldCoverage: Record<string, number> = {};
+  for (const ac of subs) Object.assign(fieldCoverage, ac.fieldCoverage);
+
+  const completeRows = checkRows.filter((r) => r.missingFields.length === 0 && r.hasData).length;
+  const incompleteRows = checkRows.filter((r) => r.missingFields.length > 0 && r.hasData).length;
+  const emptyRows = checkRows.filter((r) => !r.hasData).length;
+  const avgCompleteness =
+    checkRows.length > 0 ? checkRows.reduce((s, r) => s + r.completeness, 0) / checkRows.length : 0;
+
+  return {
+    rows: checkRows,
+    totalRows: checkRows.length,
+    completeRows,
+    incompleteRows,
+    emptyRows,
+    avgCompleteness,
+    fieldCoverage,
+  };
+}
+
+// Merge per-section previews of a combined CSV into one preview table (one row
+// per symbol). Keeps each section's rows so commit can split them back apart.
+function mergeCombinedPreview(
+  parts: { type: SupportedCsvType; data: PreviewResponse }[],
+): { merged: PreviewResponse; partsByType: Partial<Record<SupportedCsvType, PreviewRow[]>> } {
+  const byType = new Map<SupportedCsvType, Map<number, PreviewRow>>();
+  const partsByType: Partial<Record<SupportedCsvType, PreviewRow[]>> = {};
+  const allIdx = new Set<number>();
+  for (const { type, data } of parts) {
+    byType.set(type, new Map(data.rows.map((r) => [r.row_index, r])));
+    partsByType[type] = data.rows;
+    data.rows.forEach((r) => allIdx.add(r.row_index));
+  }
+
+  const mergedRows: PreviewRow[] = [];
+  [...allIdx]
+    .sort((a, b) => a - b)
+    .forEach((idx) => {
+      const subRows = COMBINED_ORDER.map((t) => byType.get(t)?.get(idx)).filter(
+        (r): r is PreviewRow => r != null,
+      );
+      const baseRow = byType.get("base")?.get(idx) ?? null;
+
+      let symbol = "";
+      const normalized: Record<string, unknown> = {};
+      let current: Record<string, unknown> | null = null;
+      const changed: string[] = [];
+      const missing: string[] = [];
+      const errors: string[] = [];
+      for (const r of subRows) {
+        if (r.symbol) symbol = r.symbol;
+        if (r.normalized) Object.assign(normalized, r.normalized);
+        if (r.current) current = { ...(current ?? {}), ...r.current };
+        changed.push(...r.changed_fields);
+        missing.push(...r.missing_fields);
+        errors.push(...r.errors);
+      }
+
+      const anyError = subRows.some((r) => r.action === "error");
+      const action: PreviewRow["action"] = anyError
+        ? "error"
+        : baseRow?.action === "new"
+          ? "new"
+          : subRows.some((r) => r.action === "new" || r.action === "update")
+            ? "update"
+            : "skip";
+
+      mergedRows.push({
+        row_index: idx,
+        symbol,
+        action,
+        missing_fields: [...new Set(missing)],
+        errors: [...new Set(errors)],
+        normalized: Object.keys(normalized).length > 0 ? normalized : null,
+        current,
+        changed_fields: [...new Set(changed)],
+      });
+    });
+
+  const summary: PreviewResponse["summary"] = {
+    total: mergedRows.length,
+    new: mergedRows.filter((r) => r.action === "new").length,
+    update: mergedRows.filter((r) => r.action === "update").length,
+    skip: mergedRows.filter((r) => r.action === "skip").length,
+    error: mergedRows.filter((r) => r.action === "error").length,
+    incomplete: mergedRows.filter((r) => r.missing_fields.length > 0).length,
+  };
+
+  return { merged: { type: "combined", summary, rows: mergedRows }, partsByType };
+}
+
 // ──────────────────────────────────────────────
 // Sub-components
 // ──────────────────────────────────────────────
@@ -369,8 +515,16 @@ function SchemaChip({ type }: { type: CsvType }) {
   return (
     <Chip
       size="small"
-      color={type === "unknown" ? "error" : type === "fa_norm" ? "warning" : "primary"}
-      label={type}
+      color={
+        type === "unknown"
+          ? "error"
+          : type === "fa_norm"
+            ? "warning"
+            : type === "combined"
+              ? "secondary"
+              : "primary"
+      }
+      label={type === "combined" ? "combined (base+financials+sector)" : type}
       sx={WHITE_CHIP_SX}
     />
   );
@@ -741,6 +895,163 @@ function RawDataPreview({ item }: { item: ImportItem }) {
 }
 
 // ──────────────────────────────────────────────
+// Supported-files guide
+// ──────────────────────────────────────────────
+
+type GuideEntry = {
+  type: CsvType;
+  title: string;
+  desc: string;
+  required: string[];
+  columns: string[];
+  notes: string[];
+};
+
+const FORMAT_GUIDE: GuideEntry[] = [
+  {
+    type: "base",
+    title: "ข้อมูลหลัก IPO / Base",
+    desc: "ข้อมูลหุ้น + ราคา IPO + ราคาวันแรก (D1) ถึง 6 เดือน + ที่ปรึกษาการเงิน (FA) และผู้จัดจำหน่าย",
+    required: ["symbol"],
+    columns: ALL_FIELDS.base,
+    notes: [
+      "วันที่ใช้รูปแบบ YYYY-MM-DD เช่น 2025-10-03",
+      "คอลัมน์ fa_persons / fa_companies / lead_underwriters_norm / co_underwriters_norm เป็นลิสต์ เช่น ['บริษัทหลักทรัพย์ ก จำกัด', 'บริษัทหลักทรัพย์ ข จำกัด'] หรือเว้นว่างได้",
+      "ถ้า first_trade_date ว่าง = ยังไม่กำหนดวันเทรด (ระบบจะไม่เปลี่ยนสถานะของหุ้นเดิม)",
+    ],
+  },
+  {
+    type: "financials",
+    title: "งบการเงิน / Financials",
+    desc: "งบการเงินและโครงสร้างการเสนอขายหุ้น (ตัวเลขล้วน)",
+    required: ["symbol"],
+    columns: ALL_FIELDS.financials,
+    notes: [
+      "ต้องมีข้อมูล base ของ symbol นั้นในระบบก่อน (หรือใส่ base มาในชุดเดียวกัน)",
+      "ช่องที่ไม่มีข้อมูลเว้นว่างได้",
+    ],
+  },
+  {
+    type: "sector",
+    title: "ตลาด & หมวดธุรกิจ / Sector",
+    desc: "ตลาด (SET/mai), กลุ่มอุตสาหกรรม และหมวดธุรกิจ",
+    required: ["symbol"],
+    columns: ALL_FIELDS.sector,
+    notes: ["ใช้ '-' หรือเว้นว่างได้ถ้ายังไม่มีข้อมูล"],
+  },
+  {
+    type: "fa_norm",
+    title: "แมปชื่อ FA / FA normalization",
+    desc: "จับคู่ชื่อ FA แบบดิบจากเอกสาร → ชื่อมาตรฐานที่ใช้ในระบบ",
+    required: ["fa_companies", "fa_company_norm"],
+    columns: ALL_FIELDS.fa_norm,
+    notes: ["ไฟล์นี้ไม่ต้องมีคอลัมน์ symbol"],
+  },
+  {
+    type: "combined",
+    title: "ไฟล์รวม / Combined",
+    desc: "รวม base + financials + sector ไว้ในไฟล์เดียว (มีคอลัมน์ของ ≥ 2 ประเภท)",
+    required: ["symbol"],
+    columns: [],
+    notes: [
+      "ระบบจะตรวจจับเองและแสดงเป็นรายการเดียว แล้วแยกบันทึกตามลำดับ base → financials → sector ให้อัตโนมัติ",
+    ],
+  },
+];
+
+function ColumnChips({ columns, required }: { columns: string[]; required: string[] }) {
+  const reqSet = new Set(required);
+  return (
+    <Stack direction="row" sx={{ flexWrap: "wrap", gap: 0.5 }}>
+      {columns.map((col) => {
+        const isReq = reqSet.has(col);
+        return (
+          <Chip
+            key={col}
+            size="small"
+            label={isReq ? `${col} *` : col}
+            sx={{
+              height: 20,
+              fontSize: 10.5,
+              fontFamily: "monospace",
+              bgcolor: isReq ? "#dbeafe" : "#f1f5f9",
+              color: isReq ? "#1e40af" : "#475569",
+              fontWeight: isReq ? 800 : 600,
+            }}
+          />
+        );
+      })}
+    </Stack>
+  );
+}
+
+function FormatGuide() {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <Paper sx={{ ...adminPanelSx, overflow: "hidden" }}>
+      <Stack
+        direction="row"
+        spacing={1.5}
+        sx={{ alignItems: "center", p: 2, cursor: "pointer" }}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <MenuBookRoundedIcon fontSize="small" sx={{ color: adminColors.accent }} />
+        <Typography variant="subtitle2" sx={{ fontWeight: 800, flex: 1 }}>
+          รองรับไฟล์อะไรบ้าง & รูปแบบเป็นอย่างไร / Supported files &amp; formats
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          {open ? "ซ่อน / Hide" : "ดูคำอธิบาย / Show"}
+        </Typography>
+        <ExpandMoreRoundedIcon
+          fontSize="small"
+          sx={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 200ms" }}
+        />
+      </Stack>
+      <Collapse in={open}>
+        <Box sx={{ px: 2, pb: 2 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
+            ระบบตรวจจับชนิดไฟล์อัตโนมัติจากหัวคอลัมน์ (ไม่ต้องตั้งชื่อไฟล์เฉพาะ) — คอลัมน์ที่มี <b>*</b> = จำเป็น / File type is auto-detected from column headers; <b>*</b> = required.
+          </Typography>
+          <Stack spacing={1.5}>
+            {FORMAT_GUIDE.map((g) => (
+              <Box
+                key={g.type}
+                sx={{
+                  border: "1px solid",
+                  borderColor: adminColors.borderSoft,
+                  borderRadius: `${ADMIN_RADIUS}px`,
+                  p: 1.5,
+                }}
+              >
+                <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 0.5, flexWrap: "wrap" }}>
+                  <SchemaChip type={g.type} />
+                  <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                    {g.title}
+                  </Typography>
+                </Stack>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: g.columns.length ? 1 : 0.5 }}>
+                  {g.desc}
+                </Typography>
+                {g.columns.length > 0 && <ColumnChips columns={g.columns} required={g.required} />}
+                {g.notes.length > 0 && (
+                  <Box component="ul" sx={{ m: 0, mt: 1, pl: 2.5 }}>
+                    {g.notes.map((n, i) => (
+                      <Typography key={i} component="li" variant="caption" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                        {n}
+                      </Typography>
+                    ))}
+                  </Box>
+                )}
+              </Box>
+            ))}
+          </Stack>
+        </Box>
+      </Collapse>
+    </Paper>
+  );
+}
+
+// ──────────────────────────────────────────────
 // Main component
 // ──────────────────────────────────────────────
 
@@ -805,27 +1116,61 @@ export default function ImportClient() {
 
     for (const [index, file] of files.entries()) {
       try {
+        if (file.size > IMPORT_CSV_MAX_FILE_BYTES) {
+          parseErrors.push(
+            `${file.name}: file too large (${fileSizeLabel(file.size)}). Limit is ${fileSizeLabel(IMPORT_CSV_MAX_FILE_BYTES)}.`,
+          );
+          continue;
+        }
+
         const text = await file.text();
         const rows = parseCSV(text);
         if (rows.length === 0) {
           parseErrors.push(`${file.name}: CSV ว่างหรือ parse ไม่ได้ / empty or unparseable CSV`);
           continue;
         }
+        if (rows.length > IMPORT_CSV_MAX_ROWS) {
+          parseErrors.push(
+            `${file.name}: too many rows (${rows.length}). Limit is ${IMPORT_CSV_MAX_ROWS}.`,
+          );
+          continue;
+        }
 
         const headers = Object.keys(rows[0]);
-        const schema = detectSchema(headers);
-        const autoCheck = isSupportedType(schema.type) ? runAutoCheck(rows, schema.type) : null;
+        const detectedTypes = detectCsvTypes(headers);
 
-        parsedItems.push({
-          id: `${file.name}-${file.lastModified}-${file.size}-${index}`,
-          fileName: file.name,
-          fileSize: file.size,
-          rows,
-          schema,
-          preview: null,
-          error: null,
-          autoCheck,
-        });
+        if (detectedTypes.length >= 2) {
+          // Combined CSV (base + financials + sector in one file): keep it as a
+          // single item. Each section is normalized from its own columns at
+          // preview time and the item is split back into per-type payloads only
+          // at commit (base → financials → sector so parent IPO rows exist first).
+          const combinedTypes = COMBINED_ORDER.filter((t) => detectedTypes.includes(t));
+          parsedItems.push({
+            id: `${file.name}-${file.lastModified}-${file.size}-${index}`,
+            fileName: file.name,
+            fileSize: file.size,
+            rows,
+            schema: schemaForCombined(headers, combinedTypes),
+            preview: null,
+            error: null,
+            autoCheck: runCombinedAutoCheck(rows, combinedTypes),
+            combinedTypes,
+          });
+        } else {
+          const schema = detectSchema(headers);
+          const autoCheck = isSupportedType(schema.type) ? runAutoCheck(rows, schema.type) : null;
+
+          parsedItems.push({
+            id: `${file.name}-${file.lastModified}-${file.size}-${index}`,
+            fileName: file.name,
+            fileSize: file.size,
+            rows,
+            schema,
+            preview: null,
+            error: null,
+            autoCheck,
+          });
+        }
       } catch (err) {
         parseErrors.push(`${file.name}: ${(err as Error).message ?? String(err)}`);
       }
@@ -857,25 +1202,70 @@ export default function ImportClient() {
     const initialSelected = new Set<string>();
     const pendingParentSymbols = new Set<string>();
 
+    const previewType = async (type: SupportedCsvType, rows: Record<string, string>[]) => {
+      if (rows.length > IMPORT_CSV_MAX_ROWS) {
+        throw new Error(`Too many rows (${rows.length}). Limit is ${IMPORT_CSV_MAX_ROWS}.`);
+      }
+      const payload = JSON.stringify({
+        type,
+        rows,
+        pending_parent_symbols: Array.from(pendingParentSymbols),
+      });
+      const payloadBytes = new TextEncoder().encode(payload).byteLength;
+      if (payloadBytes > IMPORT_PREVIEW_MAX_BODY_BYTES) {
+        throw new Error(
+          `Preview payload too large (${fileSizeLabel(payloadBytes)}). Limit is ${fileSizeLabel(IMPORT_PREVIEW_MAX_BODY_BYTES)}.`,
+        );
+      }
+
+      const res = await fetch("/api/ipo/import/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Preview failed");
+      return data as PreviewResponse;
+    };
+
     try {
       for (const item of queue) {
+        if (item.combinedTypes && item.combinedTypes.length > 0) {
+          // Preview each section in order (base first so its symbols become
+          // pending parents for financials/sector), then merge into one table.
+          const parts: { type: SupportedCsvType; data: PreviewResponse }[] = [];
+          for (const t of COMBINED_ORDER.filter((t) => item.combinedTypes!.includes(t))) {
+            const data = await previewType(t, item.rows);
+            parts.push({ type: t, data });
+            if (t === "base") {
+              data.rows.forEach((row) => {
+                if (row.action !== "error" && row.symbol) {
+                  pendingParentSymbols.add(row.symbol.toUpperCase());
+                }
+              });
+            }
+          }
+          const { merged, partsByType } = mergeCombinedPreview(parts);
+          item.preview = merged;
+          item.combinedParts = partsByType;
+          merged.rows.forEach((row) => {
+            if (isSelectable(row)) initialSelected.add(rowKey(item.id, row.row_index));
+          });
+          continue;
+        }
+
         const type = item.schema.type;
         if (!isSupportedType(type)) {
           item.error = "ตรวจไม่พบ schema ของไฟล์นี้ / Schema not detected for this file";
           continue;
         }
 
-        const res = await fetch("/api/ipo/import/preview", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type,
-            rows: item.rows,
-            pending_parent_symbols: Array.from(pendingParentSymbols),
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(`${item.fileName}: ${data.error ?? "Preview failed"}`);
+        let data: PreviewResponse;
+        try {
+          data = await previewType(type, item.rows);
+        } catch (err) {
+          throw new Error(`${item.fileName}: ${(err as Error).message}`);
+        }
 
         item.preview = data;
         data.rows.forEach((row: PreviewRow) => {
@@ -906,15 +1296,69 @@ export default function ImportClient() {
         return order === 0 ? a.fileName.localeCompare(b.fileName) : order;
       });
 
-    const work = queue
-      .map((item) => ({
-        item,
-        rows: item.preview?.rows.filter((row) => selected.has(rowKey(item.id, row.row_index))) ?? [],
-      }))
-      .filter(({ rows }) => rows.length > 0);
+    type CommitPayloadItem = {
+      fileName: string;
+      type: SupportedCsvType;
+      rows: { symbol: string; action: PreviewRow["action"]; normalized: Record<string, unknown> | null }[];
+    };
 
-    if (work.length === 0) {
+    const payload: CommitPayloadItem[] = [];
+    for (const item of queue) {
+      if (item.combinedTypes && item.combinedParts) {
+        // Split the single combined item back into per-section commit payloads.
+        for (const t of item.combinedTypes) {
+          const subRows = (item.combinedParts[t] ?? []).filter(
+            (row) => selected.has(rowKey(item.id, row.row_index)) && isSelectable(row),
+          );
+          if (subRows.length > 0) {
+            payload.push({
+              fileName: `${item.fileName} [${t}]`,
+              type: t,
+              rows: subRows.map((row) => ({
+                symbol: row.symbol,
+                action: row.action,
+                normalized: row.normalized,
+              })),
+            });
+          }
+        }
+        continue;
+      }
+      if (item.preview && isSupportedType(item.preview.type)) {
+        const rows = item.preview.rows.filter(
+          (row) => selected.has(rowKey(item.id, row.row_index)) && isSelectable(row),
+        );
+        if (rows.length > 0) {
+          payload.push({
+            fileName: item.fileName,
+            type: item.preview.type,
+            rows: rows.map((row) => ({
+              symbol: row.symbol,
+              action: row.action,
+              normalized: row.normalized,
+            })),
+          });
+        }
+      }
+    }
+
+    if (payload.length === 0) {
       setError("ยังไม่ได้เลือกแถวที่จะบันทึก / No rows selected to commit");
+      return;
+    }
+
+    const oversizedItem = payload.find((item) => item.rows.length > IMPORT_CSV_MAX_ROWS);
+    if (oversizedItem) {
+      setError(`${oversizedItem.fileName}: too many rows (${oversizedItem.rows.length}). Limit is ${IMPORT_CSV_MAX_ROWS}.`);
+      return;
+    }
+
+    const commitPayload = JSON.stringify({ items: payload });
+    const commitPayloadBytes = new TextEncoder().encode(commitPayload).byteLength;
+    if (commitPayloadBytes > IMPORT_PREVIEW_MAX_BODY_BYTES) {
+      setError(
+        `Commit payload too large (${fileSizeLabel(commitPayloadBytes)}). Limit is ${fileSizeLabel(IMPORT_PREVIEW_MAX_BODY_BYTES)}.`,
+      );
       return;
     }
 
@@ -923,22 +1367,10 @@ export default function ImportClient() {
     setCommitted(null);
 
     try {
-      const payload = work
-        .filter(({ item }) => item.preview && isSupportedType(item.preview.type))
-        .map(({ item, rows }) => ({
-          fileName: item.fileName,
-          type: item.preview!.type,
-          rows: rows.map((row) => ({
-            symbol: row.symbol,
-            action: row.action,
-            normalized: row.normalized,
-          })),
-        }));
-
       const res = await fetch("/api/ipo/import/commit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: payload }),
+        body: commitPayload,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Commit failed");
@@ -1006,6 +1438,9 @@ export default function ImportClient() {
 
   return (
     <Stack spacing={2}>
+      {/* Supported files & format guide */}
+      <FormatGuide />
+
       {/* Drop zone */}
       <Paper
         sx={{
@@ -1048,7 +1483,10 @@ export default function ImportClient() {
             : "ลาก/วางไฟล์ CSV ที่นี่ หรือคลิกเลือก / Drag & drop CSV files here, or click to choose"}
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          ระบบจะพรีวิวและบันทึกตามลำดับ base.csv → financials.csv → df_sector.csv / Files are previewed and committed in order: base.csv → financials.csv → df_sector.csv
+          ระบบจะพรีวิวและบันทึกตามลำดับ base → financials → sector / Files are previewed and committed in order: base → financials → sector
+          <Box component="span" sx={{ display: "block", mt: 0.5 }}>
+            รองรับไฟล์รวม (base + financials + sector ในไฟล์เดียว) — ระบบจะแยกส่วนให้อัตโนมัติ / Combined files (base + financials + sector in one CSV) are auto-split into sections
+          </Box>
         </Typography>
       </Paper>
 

@@ -9,6 +9,7 @@
  */
 
 import { query } from "@/lib/db";
+import { SLICE_KEYS, extractSlice } from "@/lib/artifact";
 import { writeFileSync, existsSync, statSync, readFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { createHash } from "node:crypto";
@@ -478,8 +479,14 @@ function buildIpoData(data: ExportedData): any {
 
   function normalizeFACompany(name: string): string {
     if (!name) return "";
-    const key = name.trim().toLowerCase().replace(/\s+/g, "");
-    return FA_COMPANY_LOOKUP.get(key) || "";
+    const trimmed = name.trim();
+    const key = trimmed.toLowerCase().replace(/\s+/g, "");
+    // Fall back to the original name when there is no normalization mapping.
+    // Returning "" here used to silently drop every FA company that wasn't in
+    // the fa_normalizations table — which, when that table is sparse/empty,
+    // wiped fa_companies out of the entire dataset (FA company + FA person+company
+    // analytics never had data to match against).
+    return FA_COMPANY_LOOKUP.get(key) || trimmed;
   }
 
   // Sector lookup
@@ -1398,6 +1405,42 @@ async function updateBuildRun(
   }
 }
 
+/**
+ * Write one JSON artifact to its primary path, falling back to /tmp when the
+ * filesystem is read-only (e.g. Vercel). Returns the path actually written.
+ */
+function writeArtifactFile(
+  primaryPath: string,
+  tmpPath: string,
+  json: string,
+): string {
+  try {
+    const dir = dirname(primaryPath);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(primaryPath, json, "utf-8");
+    return primaryPath;
+  } catch {
+    writeFileSync(tmpPath, json, "utf-8");
+    return tmpPath;
+  }
+}
+
+/**
+ * Carve the full build result into the per-slice payloads served by
+ * /api/ipo-data/*. The small `summary` slice is everything the first paint
+ * needs; the heavy arrays (leadco/companies/rawipo/details) are loaded lazily
+ * only by the views that use them. The key→slice mapping lives in artifact.ts
+ * (SLICE_KEYS) so the writer here and the reader's fallback can't drift apart.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function sliceBuildResult(result: any): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const name of Object.keys(SLICE_KEYS)) {
+    out[name] = extractSlice(result, name);
+  }
+  return out;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Section 8: Main Entry Point
 // ═══════════════════════════════════════════════════════════════════
@@ -1465,6 +1508,23 @@ export async function runBuild(runId?: number): Promise<BuildResult> {
       writeFileSync(tmpPath, json, "utf-8");
       writtenPath = tmpPath;
     }
+
+    // Also emit per-slice artifacts so the client can lazy-load only what each
+    // view needs instead of the full ipo.json (served by /api/ipo-data/*).
+    const sliceDir = resolve(process.cwd(), "src", "app", "data", "ipo");
+    const slices = sliceBuildResult(result);
+    for (const [name, slice] of Object.entries(slices)) {
+      writeArtifactFile(
+        resolve(sliceDir, `${name}.json`),
+        `/tmp/ipo-${name}.json`,
+        JSON.stringify(slice),
+      );
+    }
+    await buildLog(
+      rid,
+      "info",
+      `Wrote ${Object.keys(slices).length} data slices to ${sliceDir}`,
+    );
 
     // Compute artifact metadata
     let artifactSize: number | null = null;

@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import mammoth from "mammoth";
+import { parseFragment } from "parse5";
 import { fetchSecOfficeFileForView } from "@/lib/sec-extractor";
 
 export const dynamic = "force-dynamic";
@@ -12,12 +13,204 @@ const ALLOWED_HOST = "market.sec.or.th";
 const MAX_ROWS = 2000;
 const MAX_COLS = 80;
 
+const HTML_SECURITY_HEADERS = {
+  "Content-Security-Policy": [
+    "default-src 'none'",
+    "script-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+    "img-src 'self' data:",
+    "style-src 'unsafe-inline'",
+  ].join("; "),
+  "X-Content-Type-Options": "nosniff",
+} as const;
+
+const BASE_SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+} as const;
+
+const ALLOWED_DOCX_TAGS = new Set([
+  "a",
+  "b",
+  "blockquote",
+  "br",
+  "code",
+  "div",
+  "em",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "i",
+  "img",
+  "li",
+  "ol",
+  "p",
+  "pre",
+  "s",
+  "span",
+  "strong",
+  "sub",
+  "sup",
+  "table",
+  "tbody",
+  "td",
+  "tfoot",
+  "th",
+  "thead",
+  "tr",
+  "u",
+  "ul",
+]);
+
+const DROP_WITH_CONTENT = new Set([
+  "base",
+  "button",
+  "embed",
+  "form",
+  "iframe",
+  "input",
+  "link",
+  "meta",
+  "noscript",
+  "object",
+  "script",
+  "select",
+  "style",
+  "svg",
+  "textarea",
+]);
+
+type HtmlNode = {
+  nodeName?: string;
+  tagName?: string;
+  value?: string;
+  childNodes?: HtmlNode[];
+  attrs?: Array<{ name: string; value: string }>;
+};
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function safeIntegerAttr(value: string, min = 1, max = 100): string | null {
+  if (!/^\d+$/.test(value)) return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < min || n > max) return null;
+  return String(n);
+}
+
+function safeUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol === "http:" || url.protocol === "https:" || url.protocol === "mailto:") {
+      return trimmed;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function safeImageSrc(value: string): string | null {
+  const trimmed = value.trim();
+  if (/^data:image\/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(trimmed)) {
+    return trimmed.replace(/\s+/g, "");
+  }
+  return null;
+}
+
+function docxAttrs(tag: string, attrs: HtmlNode["attrs"] = []): string {
+  const out: string[] = [];
+  for (const attr of attrs) {
+    const name = attr.name.toLowerCase();
+    const value = attr.value;
+
+    if (name === "title") {
+      out.push(`title="${escapeHtml(value)}"`);
+      continue;
+    }
+
+    if (tag === "a" && name === "href") {
+      const href = safeUrl(value);
+      if (href) {
+        out.push(`href="${escapeHtml(href)}"`);
+        out.push('target="_blank"');
+        out.push('rel="noreferrer"');
+      }
+      continue;
+    }
+
+    if ((tag === "td" || tag === "th") && (name === "colspan" || name === "rowspan")) {
+      const safe = safeIntegerAttr(value);
+      if (safe) out.push(`${name}="${safe}"`);
+      continue;
+    }
+
+    if (tag === "ol" && name === "start") {
+      const safe = safeIntegerAttr(value, 1, 10_000);
+      if (safe) out.push(`start="${safe}"`);
+      continue;
+    }
+
+    if (tag === "img") {
+      if (name === "src") {
+        const src = safeImageSrc(value);
+        if (src) out.push(`src="${escapeHtml(src)}"`);
+      } else if (name === "alt") {
+        out.push(`alt="${escapeHtml(value)}"`);
+      }
+    }
+  }
+  return out.length ? ` ${out.join(" ")}` : "";
+}
+
+function sanitizeNodes(nodes: HtmlNode[] = []): string {
+  return nodes
+    .map((node) => {
+      if (node.nodeName === "#text") return escapeHtml(node.value ?? "");
+      if (!node.tagName) return sanitizeNodes(node.childNodes);
+
+      const tag = node.tagName.toLowerCase();
+      if (DROP_WITH_CONTENT.has(tag)) return "";
+
+      const children = sanitizeNodes(node.childNodes);
+      if (!ALLOWED_DOCX_TAGS.has(tag)) return children;
+      if (tag === "br") return "<br>";
+      if (tag === "img") {
+        const attrs = docxAttrs(tag, node.attrs);
+        return attrs.includes("src=") ? `<img${attrs}>` : "";
+      }
+      return `<${tag}${docxAttrs(tag, node.attrs)}>${children}</${tag}>`;
+    })
+    .join("");
+}
+
+export function sanitizeDocxHtml(html: string): string {
+  const fragment = parseFragment(html) as unknown as { childNodes?: HtmlNode[] };
+  return sanitizeNodes(fragment.childNodes);
+}
+
+function secureJson(body: unknown, init?: ResponseInit): Response {
+  return Response.json(body, {
+    ...init,
+    headers: {
+      ...BASE_SECURITY_HEADERS,
+      ...(init?.headers ?? {}),
+    },
+  });
 }
 
 // ExcelJS throws on `cell.text` for a merged cell whose master value is null
@@ -157,7 +350,10 @@ function getMergeMaps(
 function renderCellContent(cell: ExcelJS.Cell): string {
   const text = escapeHtml(cellText(cell));
   if (cell.isHyperlink && cell.hyperlink) {
-    return `<a href="${escapeHtml(cell.hyperlink)}" target="_blank" rel="noreferrer">${text || escapeHtml(cell.hyperlink)}</a>`;
+    const href = safeUrl(cell.hyperlink);
+    if (href) {
+      return `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${text || escapeHtml(href)}</a>`;
+    }
   }
   return text.replace(/\n/g, "<br>");
 }
@@ -268,6 +464,7 @@ async function xlsxToHtml(bytes: Buffer): Promise<string> {
 /** Render a .docx into a self-contained, readable HTML page. */
 async function docxToHtml(bytes: Buffer): Promise<string> {
   const { value } = await mammoth.convertToHtml({ buffer: bytes });
+  const sanitized = sanitizeDocxHtml(value);
   return `<!doctype html><html lang="th"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SEC document</title>
@@ -279,7 +476,7 @@ async function docxToHtml(bytes: Buffer): Promise<string> {
   .doc td, .doc th { border: 1px solid #e3eaf2; padding: 4px 8px; vertical-align: top; }
   .doc img { max-width: 100%; height: auto; }
 </style></head>
-<body><div class="doc">${value || "<p>ไม่พบเนื้อหาในไฟล์</p>"}</div></body></html>`;
+<body><div class="doc">${sanitized || "<p>ไม่พบเนื้อหาในไฟล์</p>"}</div></body></html>`;
 }
 
 export async function GET(request: Request) {
@@ -290,17 +487,17 @@ export async function GET(request: Request) {
   // on localhost/ngrok where the Office viewer can't reach us).
   const raw = params.get("raw") === "1";
   if (!target) {
-    return Response.json({ error: "Missing url parameter." }, { status: 400 });
+    return secureJson({ error: "Missing url parameter." }, { status: 400 });
   }
 
   let parsed: URL;
   try {
     parsed = new URL(target);
   } catch {
-    return Response.json({ error: "Invalid url." }, { status: 400 });
+    return secureJson({ error: "Invalid url." }, { status: 400 });
   }
   if (parsed.protocol !== "https:" || parsed.hostname !== ALLOWED_HOST) {
-    return Response.json(
+    return secureJson(
       { error: `Only https://${ALLOWED_HOST} URLs are allowed.` },
       { status: 400 },
     );
@@ -308,7 +505,7 @@ export async function GET(request: Request) {
 
   const result = await fetchSecOfficeFileForView(parsed.href);
   if (!result.ok) {
-    return Response.json({ error: result.message }, { status: result.status });
+    return secureJson({ error: result.message }, { status: result.status });
   }
 
   // Spreadsheets: render to an HTML table page so they open in-browser on any
@@ -321,10 +518,11 @@ export async function GET(request: Request) {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           "Cache-Control": "private, max-age=300",
+          ...HTML_SECURITY_HEADERS,
         },
       });
     } catch (err) {
-      return Response.json(
+      return secureJson(
         { error: `เปิดไฟล์ xlsx ไม่สำเร็จ: ${(err as Error).message}` },
         { status: 500 },
       );
@@ -341,10 +539,11 @@ export async function GET(request: Request) {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           "Cache-Control": "private, max-age=300",
+          ...HTML_SECURITY_HEADERS,
         },
       });
     } catch (err) {
-      return Response.json(
+      return secureJson(
         { error: `เปิดไฟล์ docx ไม่สำเร็จ: ${(err as Error).message}` },
         { status: 500 },
       );
@@ -359,6 +558,7 @@ export async function GET(request: Request) {
       "Content-Type": result.contentType,
       "Content-Disposition": `inline; filename="${result.filename}"`,
       "Cache-Control": "private, max-age=300",
+      ...BASE_SECURITY_HEADERS,
     },
   });
 }

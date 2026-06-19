@@ -17,6 +17,22 @@ export function getStaleRunMs(): number {
   return Number(process.env.SCRAPER_STALE_RUN_MS ?? getScraperTimeoutMs() + STALE_RUN_GRACE_MS);
 }
 
+/**
+ * Timestamp the scraper last successfully ran (started_at of the most recent
+ * `success` run). This reflects when the data was last refreshed/checked even
+ * when nothing changed — unlike ipos.updated_at, which only moves when a value
+ * actually changes. Returns null when there is no successful run yet.
+ */
+export async function getLatestScrapeRunAt(): Promise<string | null> {
+  const rows = await query<{ started_at: string }>(
+    `SELECT started_at FROM scrape_runs
+      WHERE status = 'success'
+      ORDER BY started_at DESC
+      LIMIT 1`,
+  );
+  return rows[0]?.started_at ?? null;
+}
+
 export async function cleanupStaleScrapeRuns(): Promise<number> {
   const staleMs = getStaleRunMs();
   if (!Number.isFinite(staleMs) || staleMs <= 0) return 0;

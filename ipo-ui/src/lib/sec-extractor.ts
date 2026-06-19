@@ -1757,6 +1757,35 @@ export async function extractSecSourceFile(
   return fsResult;
 }
 
+/**
+ * Pull the FA company + named FA person from a SEC filing index. The relevant
+ * row is labelled "ที่ปรึกษาทางการเงิน" and its value cell is usually formatted
+ * "Company Name / Person Name" (person omitted, "N.A." or "-" when none).
+ * Returns the company/person it could identify; both fields are optional.
+ */
+export function parseFaFromIndexRows(
+  rows: string[][],
+): Pick<SecFilingResult, "fa_company_sec" | "fa_person"> {
+  for (const row of rows) {
+    if (!row.join(" ").includes("ที่ปรึกษาทางการเงิน")) continue;
+    const val = (row[row.length - 1] || "").trim();
+    if (!val) return {};
+    const out: Pick<SecFilingResult, "fa_company_sec" | "fa_person"> = {};
+    if (val.includes("/")) {
+      // Only the first "/" separates company from person; the person's own name
+      // may itself contain a slash, so keep the remainder intact.
+      const sep = val.indexOf("/");
+      out.fa_company_sec = val.slice(0, sep).trim();
+      const faPerson = val.slice(sep + 1).trim();
+      if (faPerson && faPerson !== "N.A." && faPerson !== "-") out.fa_person = faPerson;
+    } else {
+      out.fa_company_sec = val;
+    }
+    return out;
+  }
+  return {};
+}
+
 export async function extractSecFiling(
   filingUrl: string,
   log: SecLogger,
@@ -1784,20 +1813,7 @@ export async function extractSecFiling(
   const result: SecFilingResult = { files: [] };
 
   // FA person + company from the index table.
-  for (const row of parseTableRows(pageHtml)) {
-    if (row.join(" ").includes("ที่ปรึกษาทางการเงิน")) {
-      const val = row[row.length - 1] || "";
-      if (val.includes("/")) {
-        const parts = val.split("/").map((p) => p.trim());
-        result.fa_company_sec = parts[0];
-        const faPerson = parts[1];
-        if (faPerson && faPerson !== "N.A." && faPerson !== "-") result.fa_person = faPerson;
-      } else {
-        result.fa_company_sec = val;
-      }
-      break;
-    }
-  }
+  Object.assign(result, parseFaFromIndexRows(parseTableRows(pageHtml)));
 
   // Financial periods available.
   const finPeriods = [...pageHtml.matchAll(/\[ส่วนที่ 3\] - งบการเงิน\s+([^<]+)/g)];

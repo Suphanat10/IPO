@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
 import { query, withTransaction } from "@/lib/db";
+import { invalidateIpoFilterOptionsCache } from "@/lib/admin/queries";
 import type { PoolClient } from "pg";
 import { syncMaturedIpoStatuses } from "@/lib/ipo-status";
-import type { CsvType } from "@/lib/csv-import";
+import { scheduleAutoBuild } from "@/lib/buildTrigger";
+import {
+  IMPORT_CSV_MAX_ROWS,
+  IMPORT_PREVIEW_MAX_BODY_BYTES,
+  type CsvType,
+  type SupportedCsvType,
+} from "@/lib/csv-import";
 
 export const dynamic = "force-dynamic";
-
-type SupportedCsvType = Exclude<CsvType, "unknown">;
 
 interface ApprovedRow {
   symbol: string;
@@ -34,7 +39,8 @@ const TYPE_ORDER: Record<CsvType, number> = {
   financials: 1,
   sector: 2,
   fa_norm: 3,
-  unknown: 4,
+  combined: 4,
+  unknown: 5,
 };
 
 function isSupportedType(type: CsvType): type is SupportedCsvType {
@@ -419,6 +425,12 @@ async function handleBatch(rawItems: CommitItem[]) {
       return NextResponse.json({ error: `Unsupported type "${item.type}"` }, { status: 400 });
     }
     const rows = selectedRows(item.rows);
+    if (rows.length > IMPORT_CSV_MAX_ROWS) {
+      return NextResponse.json(
+        { error: `${item.fileName || item.type}: too many rows. Limit is ${IMPORT_CSV_MAX_ROWS}.` },
+        { status: 413 },
+      );
+    }
     if (rows.length > 0) {
       items.push({
         fileName: item.fileName || item.type,
@@ -469,6 +481,8 @@ async function handleBatch(rawItems: CommitItem[]) {
 
     maintenanceMs = await runPostCommitMaintenance(committedTypes);
     await finalizeSyncJob(syncId, "success", { inserted, updated, skipped });
+    if (committedTypes.has("sector")) invalidateIpoFilterOptionsCache();
+    scheduleAutoBuild(`import:batch:${[...committedTypes].join("+")}`);
 
     return NextResponse.json({
       ok: true,
@@ -497,6 +511,12 @@ async function handleSingle(body: { type?: CsvType; rows?: ApprovedRow[] }) {
   if (approved.length === 0) {
     return NextResponse.json({ error: "Nothing to commit" }, { status: 400 });
   }
+  if (approved.length > IMPORT_CSV_MAX_ROWS) {
+    return NextResponse.json(
+      { error: `Too many rows. Limit is ${IMPORT_CSV_MAX_ROWS} rows per commit.` },
+      { status: 413 },
+    );
+  }
 
   const syncId = await createSyncJob(`csv_admin_${type}`);
   if (syncId instanceof NextResponse) return syncId;
@@ -508,6 +528,8 @@ async function handleSingle(body: { type?: CsvType; rows?: ApprovedRow[] }) {
     const counts = await withTransaction((client) => commitType(type, approved, client));
     maintenanceMs = await runPostCommitMaintenance(new Set([type]));
     await finalizeSyncJob(syncId, "success", counts);
+    if (type === "sector") invalidateIpoFilterOptionsCache();
+    scheduleAutoBuild(`import:${type}`);
     return NextResponse.json({
       ok: true,
       sync_id: syncId,
@@ -523,6 +545,14 @@ async function handleSingle(body: { type?: CsvType; rows?: ApprovedRow[] }) {
 }
 
 export async function POST(req: Request) {
+  const contentLength = Number(req.headers.get("content-length") ?? 0);
+  if (Number.isFinite(contentLength) && contentLength > IMPORT_PREVIEW_MAX_BODY_BYTES) {
+    return NextResponse.json(
+      { error: `Commit request too large. Limit is ${IMPORT_PREVIEW_MAX_BODY_BYTES} bytes.` },
+      { status: 413 },
+    );
+  }
+
   let body: { type?: CsvType; rows?: ApprovedRow[]; items?: CommitItem[] };
   try {
     body = await req.json();

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import ComparePerformance from "./ComparePerformance";
 import { useAnalysis } from "../lib/AnalysisContext";
 import type { SummaryRow } from "../lib/types";
@@ -8,7 +8,9 @@ jest.mock("../lib/AnalysisContext", () => ({
   useAnalysis: jest.fn(),
 }));
 
-jest.mock("../lib/mockData", () => {
+// The component now loads summary data through the ipoDataClient hooks instead
+// of statically importing mockData. Mock the hook to return data synchronously.
+jest.mock("../lib/ipoDataClient", () => {
   const row = (
     name: string,
     overrides: Partial<SummaryRow> = {},
@@ -37,33 +39,37 @@ jest.mock("../lib/mockData", () => {
   });
 
   return {
-    faPersonsSummary: [] as SummaryRow[],
-    faCompaniesSummary: [
-      row("Alpha Securities", {
-        ipo_count: 10,
-        prob_close_above_ipo: 70,
-        avg_return_close_d1: 5,
-        worst_return_d1: -12,
-        avg_return_1W: 2,
-        avg_return_1M: 6,
-        avg_return_3M: 3,
-        avg_return_6M: 1,
-      }),
-      row("Beta Securities", {
-        ipo_count: 8,
-        prob_close_above_ipo: 50,
-        avg_return_close_d1: 8,
-        worst_return_d1: -20,
-        avg_return_1W: 2,
-        avg_return_1M: 4,
-        avg_return_3M: 7,
-        avg_return_6M: 4,
-      }),
-      row("Gamma Securities", {
-        ipo_count: 6,
-      }),
-    ] as SummaryRow[],
-    leadUnderwritersSummary: [] as SummaryRow[],
+    useSummary: () => ({
+      data: {
+        faPersons: [] as SummaryRow[],
+        faCompanies: [
+          row("Alpha Securities", {
+            ipo_count: 10,
+            prob_close_above_ipo: 70,
+            avg_return_close_d1: 5,
+            worst_return_d1: -12,
+            avg_return_1W: 2,
+            avg_return_1M: 6,
+            avg_return_3M: 3,
+            avg_return_6M: 1,
+          }),
+          row("Beta Securities", {
+            ipo_count: 8,
+            prob_close_above_ipo: 50,
+            avg_return_close_d1: 8,
+            worst_return_d1: -20,
+            avg_return_1W: 2,
+            avg_return_1M: 4,
+            avg_return_3M: 7,
+            avg_return_6M: 4,
+          }),
+          row("Gamma Securities", { ipo_count: 6 }),
+        ] as SummaryRow[],
+        leadUnderwriters: [] as SummaryRow[],
+      },
+      loading: false,
+      error: false,
+    }),
   };
 });
 
@@ -134,8 +140,8 @@ describe("ComparePerformance", () => {
       nameB: "Beta Securities",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /ดูตารางเปรียบเทียบ/i }));
-
+    // The comparison table renders directly once both names resolve to summary
+    // rows (no reveal button in the current component).
     expect(screen.getByRole("table")).toBeInTheDocument();
     expect(screen.getByText("Compare FA Company")).toBeInTheDocument();
     expect(screen.getByText("Alpha Securities")).toBeInTheDocument();

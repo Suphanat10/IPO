@@ -1,13 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { fetchEncrypted } from "@/lib/cipher";
-
-export type DropdownOptions = {
-  faPersons: string[];
-  faCompanies: string[];
-  underwriters: string[];
-};
+import { fetchJson } from "@/lib/api";
+import type { DropdownOptions } from "./publicHomeTypes";
 
 const EMPTY: DropdownOptions = {
   faPersons: [],
@@ -19,11 +14,32 @@ let cached: DropdownOptions | null = null;
 let inflight: Promise<DropdownOptions> | null = null;
 let loaded = false;
 
+const DropdownOptionsContext = React.createContext<DropdownOptions | null>(null);
+
+export function DropdownOptionsProvider({
+  initialOptions,
+  children,
+}: {
+  initialOptions: DropdownOptions;
+  children: React.ReactNode;
+}) {
+  React.useEffect(() => {
+    cached = initialOptions;
+    loaded = true;
+  }, [initialOptions]);
+
+  return React.createElement(
+    DropdownOptionsContext.Provider,
+    { value: initialOptions },
+    children,
+  );
+}
+
 export function preloadDropdownOptions(): Promise<DropdownOptions> {
   if (loaded) return Promise.resolve(cached ?? EMPTY);
 
   if (!inflight) {
-    inflight = fetchEncrypted<DropdownOptions>("/api/dropdown-options")
+    inflight = fetchJson<DropdownOptions>("/api/dropdown-options")
       .then((data) => {
         cached = data;
         return data;
@@ -42,11 +58,18 @@ export function preloadDropdownOptions(): Promise<DropdownOptions> {
 }
 
 export function useDropdownOptions(): DropdownOptions {
+  const serverOptions = React.useContext(DropdownOptionsContext);
   const [options, setOptions] = React.useState<DropdownOptions>(
-    cached ?? EMPTY,
+    serverOptions ?? cached ?? EMPTY,
   );
 
   React.useEffect(() => {
+    if (serverOptions) {
+      cached = serverOptions;
+      loaded = true;
+      return;
+    }
+
     let active = true;
     preloadDropdownOptions().then((data) => {
       if (active) setOptions(data);
@@ -54,7 +77,7 @@ export function useDropdownOptions(): DropdownOptions {
     return () => {
       active = false;
     };
-  }, []);
+  }, [serverOptions]);
 
-  return options;
+  return serverOptions ?? options;
 }

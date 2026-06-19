@@ -22,10 +22,11 @@ import {
   filterByLeadAndCos,
 } from "../lib/ipoAnalytics";
 import {
-  faCompaniesSummary,
-  faPersonsSummary,
-  ipoDetailsBySymbol,
-} from "../lib/mockData";
+  useSummary,
+  useRawIpo,
+  useLeadCo,
+  useIpoDetails,
+} from "../lib/ipoDataClient";
 import type { IpoDetailRow } from "../lib/mockData";
 import type { SummaryRow } from "../lib/types";
 
@@ -60,9 +61,12 @@ function KV({ k, v }: { k: string; v: React.ReactNode }) {
   );
 }
 
-function buildDetails(symbols: string[]): IpoDetailRow[] {
+function buildDetails(
+  symbols: string[],
+  bySymbol: Map<string, IpoDetailRow>,
+): IpoDetailRow[] {
   return symbols
-    .map((sym) => ipoDetailsBySymbol.get(sym))
+    .map((sym) => bySymbol.get(sym))
     .filter((r): r is IpoDetailRow => r != null);
 }
 
@@ -124,18 +128,30 @@ export default function EntityDetailView({
 }) {
   const [page, setPage] = React.useState(0);
   const [rowsPerPage, setRowsPerPage] = React.useState(10);
+  const summaryState = useSummary();
+  const rawIpoState = useRawIpo();
+  const leadCoState = useLeadCo();
+  const ipoDetailsState = useIpoDetails();
+  const summaryData = summaryState.data;
+  const rawIpoData = rawIpoState.data;
+  const leadCoData = leadCoState.data;
+  const detailsBySymbol = React.useMemo(() => {
+    const m = new Map<string, IpoDetailRow>();
+    for (const d of ipoDetailsState.data?.ipoDetails ?? []) m.set(d.symbol, d);
+    return m;
+  }, [ipoDetailsState.data]);
 
   const { rows, label, summary } = React.useMemo(() => {
     if (mode === "person" && person) {
       const rows = filterByPerson(person);
       const summary =
-        faPersonsSummary.find((r) => r.name === person) ?? null;
+        summaryData?.faPersons.find((r) => r.name === person) ?? null;
       return { rows, label: `FA Person: ${person}`, summary };
     }
     if (mode === "company" && company) {
       const rows = filterByCompany(company);
       const summary =
-        faCompaniesSummary.find((r) => r.name === company) ?? null;
+        summaryData?.faCompanies.find((r) => r.name === company) ?? null;
       return { rows, label: `FA Company: ${company}`, summary };
     }
     if (mode === "matched" && person && company) {
@@ -167,11 +183,11 @@ export default function EntityDetailView({
       };
     }
     return { rows: [], label: "", summary: null as SummaryRow | null };
-  }, [mode, person, company, lead, coList]);
+  }, [mode, person, company, lead, coList, summaryData, rawIpoData, leadCoData]);
 
   const details = React.useMemo(
-    () => buildDetails(rows.map((r) => r.sym)),
-    [rows],
+    () => buildDetails(rows.map((r) => r.sym), detailsBySymbol),
+    [rows, detailsBySymbol],
   );
 
   // Use pre-aggregated summary when available, otherwise compute from filtered details.
@@ -180,6 +196,26 @@ export default function EntityDetailView({
     () => summary ?? buildSummaryFromDetails(label, details),
     [summary, label, details],
   );
+
+  const dataError =
+    rawIpoState.error || leadCoState.error || ipoDetailsState.error;
+  if (
+    rawIpoState.loading ||
+    leadCoState.loading ||
+    ipoDetailsState.loading ||
+    dataError
+  ) {
+    return (
+      <Box sx={monoSx}>
+        <Box>{label}</Box>
+        <Box sx={{ color: dataError ? "error.main" : "text.secondary", mt: 1 }}>
+          {dataError
+            ? "โหลดข้อมูลไม่สำเร็จ ลองรีเฟรชหน้าอีกครั้ง"
+            : "กำลังโหลดข้อมูล…"}
+        </Box>
+      </Box>
+    );
+  }
 
   if (rows.length === 0) {
     return (

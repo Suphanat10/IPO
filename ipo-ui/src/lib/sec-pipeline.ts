@@ -23,6 +23,7 @@ function symbolTaggedLogger(log: SecLogger, symbol: string): SecLogger {
 import {
   recordSecSourceFile,
   getLatestShaForTransId,
+  getLatestStagedFields,
   getIpoFinancials,
   importFsFinancials,
   isAutoImportable,
@@ -33,6 +34,7 @@ import {
   type SecSourceDataStatus,
   type SecSourceValidationStatus,
 } from "./sec-source-files";
+import { query } from "./db";
 
 // ---------------------------------------------------------------------------
 // SEC pipeline orchestrator.
@@ -117,6 +119,83 @@ function hasNumericFields(fields: Record<string, unknown>): boolean {
   );
 }
 
+/** Loose name key for matching a SEC-listed FA company against the SET list. */
+function faNameKey(s: string): string {
+  return s.toLowerCase().replace(/[\s .,()/“”"'-]+/g, "");
+}
+
+/**
+ * Persist the FA person (and company) extracted from the SEC filing index onto
+ * the `ipos` row. The SET scrape only fills `fa_companies` (company names, no
+ * contact person); the named FA person lives only in the SEC filing's
+ * "ที่ปรึกษาทางการเงิน" row, so without this step it is extracted and thrown away.
+ *
+ * `fa_persons` is kept positionally aligned with `fa_companies` (the builder
+ * zips them by index), so the person is slotted next to the matching company.
+ * Returns true when the row was changed.
+ */
+async function persistFilingFa(
+  ipoId: number,
+  faPerson: string | undefined,
+  faCompanySec: string | undefined,
+  log: SecLogger,
+): Promise<boolean> {
+  const person = (faPerson ?? "").trim();
+  const company = (faCompanySec ?? "").trim();
+  if (!person && !company) return false;
+
+  try {
+    const rows = await query<{
+      fa_companies: string[] | null;
+      fa_persons: string[] | null;
+    }>("SELECT fa_companies, fa_persons FROM ipos WHERE id = $1", [ipoId]);
+    if (rows.length === 0) return false;
+
+    const companies = [...(rows[0].fa_companies ?? [])];
+    const persons = [...(rows[0].fa_persons ?? [])];
+
+    // Decide which company slot this person belongs to.
+    let idx = -1;
+    if (companies.length === 0) {
+      // SET gave no FA company — seed it from the SEC filing if we have one.
+      if (company) {
+        companies.push(company);
+        idx = 0;
+      }
+    } else if (company) {
+      idx = companies.findIndex((c) => faNameKey(c) === faNameKey(company));
+    }
+    // Fall back to the primary FA slot when the SEC company can't be matched.
+    if (idx < 0 && companies.length > 0) idx = 0;
+    if (idx < 0) {
+      // No company context at all; keep the lone person at position 0.
+      idx = 0;
+    }
+
+    // Pad persons to align positionally with companies.
+    while (persons.length < companies.length) persons.push("");
+    if (persons.length === 0) persons.push("");
+
+    if (!person) return false; // company-only: nothing new to record here
+    if ((persons[idx] ?? "") === person) return false; // already saved
+
+    persons[idx] = person;
+
+    await query(
+      "UPDATE ipos SET fa_persons = $1, fa_companies = $2, updated_at = now() WHERE id = $3",
+      [persons, companies, ipoId],
+      { retry: true },
+    );
+    log.log(
+      `FA person saved: ${companies[idx] ?? "(no company)"} / ${person}`,
+    );
+    return true;
+  } catch (e) {
+    log.warn(`FA person persist failed for ipoId=${ipoId}: ${e}`);
+    return false;
+  }
+}
+
 /**
  * An unchanged (byte-identical) file should be recorded as "unchanged" and
  * skipped only when there is nothing importable to add. If it can still import
@@ -160,6 +239,32 @@ function extractedFieldsMatchDb(
   return compared > 0;
 }
 
+/**
+ * True when this extraction is identical to the one already staged for the same
+ * logical file — every column matches and none was added or removed. Numbers are
+ * compared with a tiny tolerance for float noise; anything else must be equal.
+ * A differing value OR a new/removed column makes this false, so the pipeline
+ * stages a fresh row only when the scraped data actually changed.
+ */
+function sameAsStaged(
+  extracted: Record<string, unknown>,
+  staged: Record<string, unknown>,
+): boolean {
+  const keys = new Set([...Object.keys(extracted), ...Object.keys(staged)]);
+  for (const key of keys) {
+    const a = extracted[key];
+    const b = staged[key];
+    if (typeof a === "number" && typeof b === "number") {
+      if (Math.abs(a - b) > Math.max(1e-6, Math.abs(a) * 1e-6)) return false;
+    } else if (a !== b) {
+      // Covers value mismatches and columns present on only one side
+      // (undefined), i.e. a newly-added or removed field.
+      return false;
+    }
+  }
+  return true;
+}
+
 async function detectDataStatus(
   transId: string | null,
   sha: string,
@@ -198,6 +303,24 @@ async function processFile(
       targetSummary.skipped++;
       log.log(
         `  [SEC] ${target.symbol} ${file.file_name ?? file.source_url}: matches DB, skipped (not recorded)`,
+      );
+      return;
+    }
+  }
+
+  // Skip when this extraction is identical to the row already staged for the same
+  // logical file. With auto-import OFF (the default), confirmed-but-unimported
+  // values never reach ipo_financials, so without this guard every re-scrape
+  // would pile up another identical needs_review row. We only stage again when a
+  // value changed or a new column appeared (see sameAsStaged). Skipped when
+  // auto-import is ON so the backfill path below can still heal missing fields.
+  if (!secAutoImportEnabled()) {
+    const prevStaged = await getLatestStagedFields(secTransId, file.trans_file_seq);
+    if (prevStaged && sameAsStaged(file.fields, prevStaged)) {
+      summary.skipped++;
+      targetSummary.skipped++;
+      log.log(
+        `  [SEC] ${target.symbol} ${file.file_name ?? file.source_url}: identical to last staged, skipped (not recorded)`,
       );
       return;
     }
@@ -398,6 +521,12 @@ export async function runSecPipeline(
         symbolTaggedLogger(log, target.symbol),
       );
       summary.filingsProcessed++;
+      await persistFilingFa(
+        target.ipoId,
+        result.fa_person,
+        result.fa_company_sec,
+        symbolTaggedLogger(log, target.symbol),
+      );
       const secTransId = extractTransId(target.filingUrl);
       for (const file of result.files) {
         await processFile(target, runId, secTransId, file, log, summary, targetSummary);

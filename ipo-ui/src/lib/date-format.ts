@@ -45,3 +45,24 @@ export function formatThaiDate(value: unknown, fallback = "รอวันที
     year: "2-digit",
   });
 }
+
+export function formatThaiDateTime(value: unknown, fallback = "—") {
+  if (value == null || value === "") return fallback;
+
+  const date = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(date.getTime())) return fallback;
+
+  const datePart = date.toLocaleDateString("th-TH", {
+    timeZone: "Asia/Bangkok",
+    day: "numeric",
+    month: "short",
+    year: "2-digit",
+  });
+  const timePart = date.toLocaleTimeString("th-TH", {
+    timeZone: "Asia/Bangkok",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return `${datePart} ${timePart} น.`;
+}

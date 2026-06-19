@@ -37,6 +37,10 @@ export type PerformanceScores = {
   factorsUsed: string[];
 };
 
+function clamp01(s: number): number {
+  return Math.max(0, Math.min(1, s));
+}
+
 function decisionFromScore01(s: number): DecisionLabel {
   if (s >= 0.6) return "BUY";
   if (s >= 0.5) return "NEUTRAL";
@@ -103,7 +107,10 @@ export function scoreFAFromConclusion(c: Conclusion): BucketScore | null {
   const prob = c.summary.prob_close_above_ipo;
   const avgRet = c.summary.avg_return_close_d1 ?? 0;
   const downside = c.risk.downside_freq_20;
-  const score = c.score;
+  // calculateScore() normalizes its inputs without clamping, so an exceptionally
+  // strong (or weak) history can push c.score outside [0,1]. Keep the bucket in
+  // contract so downstream averaging/×100 can't exceed 100%.
+  const score = clamp01(c.score);
   return {
     score,
     prob,
@@ -127,7 +134,8 @@ export function scoreUWFromConclusion(c: Conclusion): BucketScore | null {
   const prob = c.summary.prob_close_above_ipo;
   const avgRet = c.summary.avg_return_close_d1 ?? 0;
   const downside = c.risk.downside_freq_20;
-  const score = c.score;
+  // See scoreFAFromConclusion: clamp the unbounded calculateScore() result.
+  const score = clamp01(c.score);
   return {
     score,
     prob,

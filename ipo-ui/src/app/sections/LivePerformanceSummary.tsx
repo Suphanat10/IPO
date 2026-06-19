@@ -19,15 +19,10 @@ import HorizontalRuleRoundedIcon from "@mui/icons-material/HorizontalRuleRounded
 import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import { useAnalysis } from "../lib/AnalysisContext";
-import {
-  faCompaniesSummary,
-  faPersonsSummary,
-  leadCoSummary,
-  leadUnderwritersSummary,
-} from "../lib/mockData";
+import { useSummary, useLeadCo, useRawIpo } from "../lib/ipoDataClient";
 import type { BucketScore, DecisionLabel } from "../lib/scoring";
 import { computePerformanceScores } from "../lib/scoring";
-import { computeLeadCoStats, parseCoList } from "../lib/leadCoStats";
+import { parseCoList } from "../lib/leadCoStats";
 import { generateFAConclusion, generateLeadCoConclusion } from "../lib/ipoAnalytics";
 import { computeFundamentalFactors, computeIpoScore } from "../lib/fundamentalFactors";
 
@@ -551,36 +546,38 @@ function FundamentalCard({
 export default function LivePerformanceSummary() {
   const { fa, leadCo, fundamental } = useAnalysis();
   const [tab, setTab] = React.useState(0);
+  const summaryState = useSummary();
+  const leadCoState = useLeadCo();
+  const rawIpoState = useRawIpo();
+  const summaryData = summaryState.data;
+  const leadCoData = leadCoState.data;
+  const rawIpoData = rawIpoState.data;
 
   const personRow = React.useMemo(
-    () => (fa.person ? faPersonsSummary.find((r) => r.name === fa.person) : undefined),
-    [fa.person],
+    () => (fa.person ? summaryData?.faPersons.find((r) => r.name === fa.person) : undefined),
+    [fa.person, summaryData],
   );
   const companyRow = React.useMemo(
-    () => (fa.company ? faCompaniesSummary.find((r) => r.name === fa.company) : undefined),
-    [fa.company],
+    () => (fa.company ? summaryData?.faCompanies.find((r) => r.name === fa.company) : undefined),
+    [fa.company, summaryData],
   );
   const leadRow = React.useMemo(
     () =>
-      leadCo.lead ? leadUnderwritersSummary.find((r) => r.name === leadCo.lead) : undefined,
-    [leadCo.lead],
+      leadCo.lead ? summaryData?.leadUnderwriters.find((r) => r.name === leadCo.lead) : undefined,
+    [leadCo.lead, summaryData],
   );
   const coList = React.useMemo(() => parseCoList(leadCo.co), [leadCo.co]);
   const pairRow = React.useMemo(
     () =>
       leadCo.lead && coList[0]
-        ? leadCoSummary.find((r) => r.name === leadCo.lead && r.co === coList[0])
+        ? leadCoData?.leadCo.find((r) => r.name === leadCo.lead && r.co === coList[0])
         : undefined,
-    [leadCo.lead, coList],
-  );
-  const leadCoMatchedStats = React.useMemo(
-    () => (leadCo.lead ? computeLeadCoStats(leadCo.lead, coList) : null),
-    [leadCo.lead, coList],
+    [leadCo.lead, coList, leadCoData],
   );
 
   const faConclusion = React.useMemo(
     () => (fa.person || fa.company ? generateFAConclusion(fa.person, fa.company) : undefined),
-    [fa.person, fa.company],
+    [fa.person, fa.company, rawIpoData],
   );
 
   const leadCoConclusion = React.useMemo(
@@ -588,13 +585,13 @@ export default function LivePerformanceSummary() {
       leadCo.lead || leadCo.co
         ? generateLeadCoConclusion(leadCo.lead, leadCo.co)
         : undefined,
-    [leadCo.lead, leadCo.co],
+    [leadCo.lead, leadCo.co, rawIpoData, leadCoData],
   );
 
   const ipoScore = React.useMemo(() => {
     const { factors } = computeFundamentalFactors(fundamental.computed, fundamental.raw);
     return computeIpoScore(factors);
-  }, [fundamental.computed, fundamental.raw]);
+  }, [fundamental.computed, fundamental.raw, summaryData]);
 
   const scores = React.useMemo(
     () =>
@@ -653,6 +650,31 @@ export default function LivePerformanceSummary() {
   const faUwAvgReturn = avgNonNull([faBucket?.avgRet ?? null, uwBucket?.avgRet ?? null]);
   const faWinProb = faBucket?.prob ?? null;
   const uwWinProb = uwBucket?.prob ?? null;
+
+  const dataError = summaryState.error || leadCoState.error || rawIpoState.error;
+  if (summaryState.loading || leadCoState.loading || rawIpoState.loading || dataError) {
+    return (
+      <Paper
+        elevation={0}
+        sx={{ borderRadius: 3, overflow: "hidden", backgroundColor: "#fff", p: 2.5 }}
+      >
+        <Stack spacing={1.25} sx={{ alignItems: "center", py: 4 }}>
+          {dataError ? (
+            <Typography variant="caption" color="error">
+              โหลดข้อมูลสถิติไม่สำเร็จ ลองรีเฟรชหน้าอีกครั้ง
+            </Typography>
+          ) : (
+            <>
+              <LinearProgress sx={{ width: "100%" }} />
+              <Typography variant="caption" color="text.secondary">
+                กำลังโหลดข้อมูลสถิติ…
+              </Typography>
+            </>
+          )}
+        </Stack>
+      </Paper>
+    );
+  }
 
   return (
     <Paper

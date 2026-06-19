@@ -9,6 +9,7 @@ import {
   parseSecuritiesOffering,
   parseAnyTextDoc,
   parseThaiNumber,
+  parseFaFromIndexRows,
 } from "./sec-extractor";
 import { isAutoImportable, secAutoImportEnabled } from "./sec-source-files";
 import { shouldSkipUnchanged } from "./sec-pipeline";
@@ -27,6 +28,47 @@ import { shouldSkipUnchanged } from "./sec-pipeline";
 // The fixtures below mirror PETPAL's actual offering document text, but the
 // assertions are generic — nothing is hard-coded to the PETPAL symbol.
 // ---------------------------------------------------------------------------
+
+describe("parseFaFromIndexRows — FA company + person (ที่ปรึกษาทางการเงิน)", () => {
+  it("splits 'Company / Person' into both fields", () => {
+    const rows = [
+      ["บริษัทที่ออกหลักทรัพย์", "บริษัท ทดสอบ จำกัด (มหาชน)"],
+      ["ที่ปรึกษาทางการเงิน", "บริษัทหลักทรัพย์ เอบีซี จำกัด / นายสมชาย ใจดี"],
+    ];
+    expect(parseFaFromIndexRows(rows)).toEqual({
+      fa_company_sec: "บริษัทหลักทรัพย์ เอบีซี จำกัด",
+      fa_person: "นายสมชาย ใจดี",
+    });
+  });
+
+  it("returns company only when no person is listed", () => {
+    const rows = [["ที่ปรึกษาทางการเงิน", "บริษัทหลักทรัพย์ เอบีซี จำกัด"]];
+    expect(parseFaFromIndexRows(rows)).toEqual({
+      fa_company_sec: "บริษัทหลักทรัพย์ เอบีซี จำกัด",
+    });
+  });
+
+  it("drops placeholder persons (N.A. / -) but keeps the company", () => {
+    expect(
+      parseFaFromIndexRows([["ที่ปรึกษาทางการเงิน", "บริษัท เอบีซี / N.A."]]),
+    ).toEqual({ fa_company_sec: "บริษัท เอบีซี" });
+    expect(
+      parseFaFromIndexRows([["ที่ปรึกษาทางการเงิน", "บริษัท เอบีซี / -"]]),
+    ).toEqual({ fa_company_sec: "บริษัท เอบีซี" });
+  });
+
+  it("keeps a person name that itself contains a slash", () => {
+    expect(
+      parseFaFromIndexRows([
+        ["ที่ปรึกษาทางการเงิน", "บริษัท เอบีซี / นายสมชาย / กรรมการ"],
+      ]),
+    ).toEqual({ fa_company_sec: "บริษัท เอบีซี", fa_person: "นายสมชาย / กรรมการ" });
+  });
+
+  it("returns {} when no FA row is present", () => {
+    expect(parseFaFromIndexRows([["หัวข้ออื่น", "ค่าอื่น"]])).toEqual({});
+  });
+});
 
 describe("parseSecuritiesOffering — offered shares (จำนวนหุ้นที่เสนอขาย)", () => {
   // Close to the real PETPAL "รายละเอียดของหลักทรัพย์ที่เสนอขาย" prose.

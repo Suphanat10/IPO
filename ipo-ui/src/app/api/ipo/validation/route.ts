@@ -10,7 +10,6 @@ export async function GET() {
   }
 
   try {
-    await syncMaturedIpoStatuses();
     const data = await query(
       `SELECT vr.*, i.symbol
        FROM validation_results vr

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import ThemeRegistry from "./theme/ThemeRegistry";
-import { AnalysisProvider } from "./lib/AnalysisContext";
 import AppShell from "./components/AppShell";
 
 export const metadata: Metadata = {
@@ -29,9 +28,7 @@ export default function RootLayout({
       </head>
       <body>
         <ThemeRegistry>
-          <AnalysisProvider>
-            <AppShell>{children}</AppShell>
-          </AnalysisProvider>
+          <AppShell>{children}</AppShell>
         </ThemeRegistry>
       </body>
     </html>

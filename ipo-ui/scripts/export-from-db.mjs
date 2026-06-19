@@ -30,9 +30,22 @@ function toCSV(rows, headers) {
   return out.join("\n") + "\n";
 }
 
+// Strip stray quote/backslash artifacts and reject punctuation-only tokens so
+// they never enter the Python-list round-trip (a literal "'" in a name would be
+// escaped to "\'" and later mis-parsed into a trailing backslash).
+function cleanEntityName(s) {
+  return String(s ?? "")
+    .replace(/[\\'"]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s.,/\-–]+|[\s.,/\-–]+$/g, "")
+    .trim();
+}
+
 function arrToPyList(arr) {
-  if (!arr || !Array.isArray(arr) || arr.length === 0) return "";
-  return "[" + arr.map((s) => `'${String(s).replace(/'/g, "\\'")}'`).join(", ") + "]";
+  if (!arr || !Array.isArray(arr)) return "";
+  const clean = arr.map(cleanEntityName).filter(Boolean);
+  if (clean.length === 0) return "";
+  return "[" + clean.map((s) => `'${s}'`).join(", ") + "]";
 }
 
 function fmtDate(s) {

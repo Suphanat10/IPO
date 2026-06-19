@@ -2,6 +2,10 @@ import https from "node:https";
 import { runBuild } from "./builder";
 import { query } from "./db";
 import {
+  refreshRecommendationOutcomes,
+  snapshotCurrentUpcomingRecommendations,
+} from "./ipo-recommendation-tracking";
+import {
   runSecPipeline,
   type SecPipelineTarget,
   type SecTargetResult,
@@ -764,7 +768,22 @@ export async function runScraper(runId: string): Promise<void> {
       }
     }
 
-    // 5. Finalize
+    // 5. Store prediction snapshots for accuracy tracking.
+    try {
+      const snapshot = await snapshotCurrentUpcomingRecommendations("scraper");
+      if (snapshot.schemaReady) {
+        await refreshRecommendationOutcomes();
+        log.log(
+          `Recommendation snapshots updated: ${snapshot.insertedOrUpdated} saved, ${snapshot.skipped} skipped`,
+        );
+      } else {
+        log.warn("Recommendation snapshot table not found; run migration 0021 to enable tracking.");
+      }
+    } catch (e) {
+      log.warn(`Recommendation snapshot skipped/failed: ${e}`);
+    }
+
+    // 6. Finalize
     const status = summary.failed === 0 ? "success" : "partial";
     await finalizeRun(runId, summary, rawIpos.length, status);
     await updateLogExcerpt(runId, log.getExcerpt());

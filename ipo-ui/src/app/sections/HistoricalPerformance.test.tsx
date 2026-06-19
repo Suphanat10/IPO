@@ -31,7 +31,9 @@ jest.mock("../components/SummaryDataGrid", () => ({
   },
 }));
 
-jest.mock("../lib/mockData", () => {
+// The component now loads summary/lead-co data through ipoDataClient hooks
+// instead of statically importing mockData. Mock the hooks synchronously.
+jest.mock("../lib/ipoDataClient", () => {
   const row = (
     name: string,
     ipoCount: number,
@@ -70,20 +72,23 @@ jest.mock("../lib/mockData", () => {
   });
 
   return {
-    faPersonsSummary: [
-      row("Person A", 2),
-      row("Person B", 5),
-      row("Person C", 8),
-    ] as SummaryRow[],
-    faCompaniesSummary: [
-      row("Company A", 4),
-      row("Company B", 9),
-    ] as SummaryRow[],
-    leadUnderwritersSummary: [row("Lead A", 6)] as SummaryRow[],
-    leadCoSummary: [
-      leadCo("Lead A", "Co A", 7),
-      leadCo("Lead B", "Co B", 3),
-    ] as LeadCoSummaryRow[],
+    useSummary: () => ({
+      data: {
+        faPersons: [row("Person A", 2), row("Person B", 5), row("Person C", 8)],
+        faCompanies: [row("Company A", 4), row("Company B", 9)],
+        leadUnderwriters: [row("Lead A", 6)],
+      },
+      loading: false,
+      error: false,
+    }),
+    useLeadCo: () => ({
+      data: {
+        leadCo: [leadCo("Lead A", "Co A", 7), leadCo("Lead B", "Co B", 3)],
+        leadCoIndex: [],
+      },
+      loading: false,
+      error: false,
+    }),
   };
 });
 
@@ -137,10 +142,6 @@ function renderHistorical(historical: Partial<UseAnalysisValue["historical"]> = 
   return ctx;
 }
 
-function expandDetails() {
-  fireEvent.click(screen.getByRole("button", { expanded: false }));
-}
-
 describe("HistoricalPerformance", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -153,8 +154,6 @@ describe("HistoricalPerformance", () => {
       expect(ctx.setHistorical).toHaveBeenCalledWith({ minIpo: 3, maxIpo: null });
     });
 
-    expect(screen.getByText("2 rows")).toBeInTheDocument();
-    expandDetails();
     expect(screen.getByTestId("summary-grid")).toBeInTheDocument();
     expect(screen.getByTestId("grid-name-label")).toHaveTextContent("FA Person");
     expect(screen.getByTestId("grid-view")).toHaveTextContent("Key Metrics");
@@ -192,7 +191,6 @@ describe("HistoricalPerformance", () => {
 
   it("changes tab and passes Lead-Co props to SummaryDataGrid", () => {
     renderHistorical();
-    expandDetails();
 
     const tabs = screen.getAllByRole("tab");
     fireEvent.click(tabs[3]);

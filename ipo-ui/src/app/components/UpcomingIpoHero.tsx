@@ -9,7 +9,6 @@ import {
   ButtonBase,
   Chip,
   IconButton,
-  LinearProgress,
   MenuItem,
   Select,
   Skeleton,
@@ -24,45 +23,19 @@ import ChevronLeftRoundedIcon from "@mui/icons-material/ChevronLeftRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import HistoryRoundedIcon from "@mui/icons-material/HistoryRounded";
-import { fetchEncrypted } from "@/lib/cipher";
-import { formatThaiDate } from "@/lib/date-format";
+import { fetchJson } from "@/lib/api";
+import { formatThaiDate, formatThaiDateTime } from "@/lib/date-format";
 import { generateFAConclusion, generateLeadCoConclusion } from "../lib/ipoAnalytics";
 import type { Conclusion } from "../lib/ipoAnalytics";
-import { companies } from "../lib/mockData";
+import { getCompanyHistoryBySymbol } from "../lib/analyticsData";
+import { useRawIpo, useLeadCo, useCompanies } from "../lib/ipoDataClient";
 import { scoreFAFromConclusion, scoreUWFromConclusion, scoreFundamental } from "../lib/scoring";
 import type { DecisionLabel } from "../lib/scoring";
 import type { ComputedFundamental } from "../lib/AnalysisContext";
+import type { UpcomingData, UpcomingIpo } from "../lib/publicHomeTypes";
 import UpcomingHistoricalStats from "./UpcomingHistoricalStats";
 
-export type UpcomingIpo = {
-  id: number;
-  symbol: string;
-  company_name: string | null;
-  company_name_th: string | null;
-  market: string | null;
-  sector: string | null;
-  listing_date: string | null;
-  ipo_price: number | null;
-  par_value: number | null;
-  business_description: string | null;
-  filing_status: string | null;
-  days_until: number | null;
-  fa_persons: string[];
-  fa_companies: string[];
-  lead_uw: string[];
-  co_uws: string[];
-  financials: {
-    gross_proceeds: number | null;
-    total_expense: number | null;
-    offered_shares: number | null;
-    offered_ratio_pct: number | null;
-    existing_shares_pct: number | null;
-    executive_total_pct: number | null;
-    total_liabilities: number | null;
-    total_equity: number | null;
-    net_income_latest: number | null;
-  } | null;
-};
+export type { UpcomingData, UpcomingIpo } from "../lib/publicHomeTypes";
 
 type Recommendation = {
   ipo: UpcomingIpo;
@@ -140,11 +113,11 @@ function translateMode(modeDesc: string): { label: string; hint: string } {
 type FilterKey = "ALL" | DecisionLabel;
 type MarketKey = "ALL" | "SET" | "mai";
 type Counts = { buy: number; neutral: number; avoid: number };
-type UpcomingResponse = { ipos: UpcomingIpo[] };
+type UpcomingResponse = { ipos: UpcomingIpo[]; scrapedAt?: string | null };
 
-let upcomingCached: UpcomingIpo[] = [];
+let upcomingCached: UpcomingData = { ipos: [], scrapedAt: null };
 let upcomingLoaded = false;
-let upcomingInflight: Promise<UpcomingIpo[]> | null = null;
+let upcomingInflight: Promise<UpcomingData> | null = null;
 
 const colors = {
   ink: "#0a1929",
@@ -155,11 +128,10 @@ const colors = {
   cyan: "#38bdf8",
 };
 
-const companyHistoryBySymbol = new Map(companies.map((row) => [row.symbol, row]));
-
 function buildHistoryGroup(key: string, label: string, conclusion: Conclusion): HistoryGroup | null {
   if (!conclusion.found || conclusion.sampleSize === 0) return null;
 
+  const companyHistoryBySymbol = getCompanyHistoryBySymbol();
   const rows = conclusion.symbols
     .map((symbol) => {
       const row = companyHistoryBySymbol.get(symbol);
@@ -317,21 +289,17 @@ export function buildRecommendation(ipo: UpcomingIpo): Recommendation {
   };
 }
 
-export function preloadUpcomingIpos(): Promise<UpcomingIpo[]> {
+export function preloadUpcomingIpos(): Promise<UpcomingData> {
   if (upcomingLoaded) return Promise.resolve(upcomingCached);
 
   if (!upcomingInflight) {
-    upcomingInflight = fetchEncrypted<UpcomingResponse>("/api/upcoming-recommendations")
+    upcomingInflight = fetchJson<UpcomingResponse>("/api/upcoming-recommendations")
       .then((data) => {
-        upcomingCached = data.ipos;
-        return data.ipos;
-      })
-      .catch(() => {
-        upcomingCached = [];
-        return [];
+        upcomingCached = { ipos: data.ipos, scrapedAt: data.scrapedAt ?? null };
+        upcomingLoaded = true;
+        return upcomingCached;
       })
       .finally(() => {
-        upcomingLoaded = true;
         upcomingInflight = null;
       });
   }
@@ -339,7 +307,7 @@ export function preloadUpcomingIpos(): Promise<UpcomingIpo[]> {
   return upcomingInflight;
 }
 
-function getPreloadedUpcomingIpos() {
+function getPreloadedUpcomingData() {
   return upcomingLoaded ? upcomingCached : null;
 }
 
@@ -418,6 +386,12 @@ function formatMoney(value: number | null, fallback = "รอข้อมูล"
 function formatPercent(value: number | null, fallback = "รอข้อมูล") {
   if (value == null) return fallback;
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function formatTargetValue(rec: Recommendation) {
+  if (rec.tpPrice != null) return formatMoney(rec.tpPrice);
+  if (rec.tpPct != null) return formatPercent(rec.tpPct);
+  return "รอข้อมูล";
 }
 
 function percentColor(value: number | null) {
@@ -809,13 +783,6 @@ function HistoryGroups({
   const [expandedKey, setExpandedKey] = React.useState<string | null>(null);
   const [pageByKey, setPageByKey] = React.useState<Record<string, number>>({});
 
-  // Reset whenever the group set changes (i.e., user picked a different IPO)
-  React.useEffect(() => {
-    setExpandedKey(null);
-    setPageByKey({});
-    onExpandedChange?.(false);
-  }, [groups, onExpandedChange]);
-
   if (groups.length === 0) return null;
 
   return (
@@ -1028,6 +995,10 @@ function DetailCard({
   const { ipo } = rec;
   const scoreNum = Math.round(rec.score * 100);
   const day = daysTone(ipo.days_until);
+  const priceMetricLabel = ipo.ipo_price != null ? "ราคา IPO" : ipo.par_value != null ? "พาร์" : "ราคา IPO";
+  const priceMetricValue = ipo.ipo_price != null
+    ? formatMoney(ipo.ipo_price)
+    : formatMoney(ipo.par_value, "รอราคา");
 
   return (
     <Box
@@ -1117,7 +1088,11 @@ function DetailCard({
           ) : null}
         </Stack>
 
-        <HistoryGroups groups={rec.historyGroups} onExpandedChange={onHistoryExpandedChange} />
+        <HistoryGroups
+          key={rec.ipo.id}
+          groups={rec.historyGroups}
+          onExpandedChange={onHistoryExpandedChange}
+        />
 
         <UpcomingHistoricalStats
           faPersons={ipo.fa_persons ?? []}
@@ -1169,8 +1144,8 @@ function DetailCard({
               gap: 1,
             }}
           >
-            <MetricCell label="ราคา IPO" value={formatMoney(ipo.ipo_price ?? ipo.par_value, "รอราคา")} />
-            <MetricCell label="Target" value={formatMoney(rec.tpPrice)} color={rec.tpPrice != null ? cfg.fg : "#94a3b8"} />
+            <MetricCell label={priceMetricLabel} value={priceMetricValue} />
+            <MetricCell label="TP" value={formatTargetValue(rec)} color={rec.tpPrice != null || rec.tpPct != null ? cfg.fg : "#94a3b8"} />
             <MetricCell
               label="Win Rate"
               value={rec.winRate != null ? `${rec.winRate.toFixed(0)}%` : "รอข้อมูล"}
@@ -1183,25 +1158,6 @@ function DetailCard({
             />
           </Box>
         </Box>
-
-        {rec.tpPct != null ? (
-          <Box sx={{ mt: 1.5 }}>
-            <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
-              <Typography sx={{ fontSize: 11, color: colors.muted, fontWeight: 750 }}>Upside target</Typography>
-              <Typography sx={{ fontSize: 12, fontWeight: 850, color: cfg.fg }}>+{Math.round(rec.tpPct)}%</Typography>
-            </Stack>
-            <LinearProgress
-              variant="determinate"
-              value={Math.min(100, rec.tpPct * 2)}
-              sx={{
-                height: 6,
-                borderRadius: 1.5,
-                bgcolor: "#eef2f7",
-                "& .MuiLinearProgress-bar": { borderRadius: 1.5, bgcolor: cfg.barColor },
-              }}
-            />
-          </Box>
-        ) : null}
 
         {(rec.faCompany || rec.faPerson || rec.leadUw) ? (
           <Box
@@ -1270,21 +1226,68 @@ function SkeletonLoader() {
   );
 }
 
-export default function UpcomingIpoHero() {
-  const initialRecs = React.useMemo(() => {
-    const ipos = getPreloadedUpcomingIpos();
-    return ipos ? buildRecommendations(ipos) : null;
-  }, []);
-  const [recs, setRecs] = React.useState<Recommendation[] | null>(initialRecs);
-  const [selectedId, setSelectedId] = React.useState<number | null>(initialRecs?.[0]?.ipo.id ?? null);
+function EmptyState({ title, detail }: { title: string; detail: string }) {
+  return (
+    <Box sx={{ p: { xs: 2, md: 3 }, textAlign: "center" }}>
+      <Typography sx={{ color: colors.ink, fontWeight: 850, fontSize: 14 }}>{title}</Typography>
+      <Typography sx={{ mt: 0.5, color: colors.muted, fontSize: 12 }}>{detail}</Typography>
+    </Box>
+  );
+}
+
+function hydrateUpcomingCache(data: UpcomingData) {
+  upcomingCached = data;
+  upcomingLoaded = true;
+  upcomingInflight = null;
+}
+
+export default function UpcomingIpoHero({
+  initialData: initialDataProp = null,
+}: {
+  initialData?: UpcomingData | null;
+}) {
+  const initialData = React.useMemo(
+    () => initialDataProp ?? getPreloadedUpcomingData(),
+    [initialDataProp],
+  );
+  // Recommendations depend on the client-fetched analytics slices (rawIpo /
+  // lead-co / companies), so they are computed on the client only — after mount.
+  // Computing them during SSR caused a hydration mismatch: the server has no
+  // analytics data injected, so its BUY/AVOID decisions differed from the
+  // client's once the slices loaded. Start null (both sides render the skeleton)
+  // and fill in via the effects below.
+  const [recs, setRecs] = React.useState<Recommendation[] | null>(null);
+  const [scrapedAt, setScrapedAt] = React.useState<string | null>(initialData?.scrapedAt ?? null);
+  const [selectedId, setSelectedId] = React.useState<number | null>(null);
   const [filter, setFilter] = React.useState<FilterKey>("ALL");
   const [marketFilter, setMarketFilter] = React.useState<MarketKey>("ALL");
   const [historyExpanded, setHistoryExpanded] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
-  // Collapse the "show all" mode whenever the user picks a different IPO
+  // Analytics slices (rawIpo + lead-co + companies) feed buildRecommendations'
+  // history/score columns via injected module data. Recompute once they arrive.
+  const rawIpoState = useRawIpo();
+  const leadCoState = useLeadCo();
+  const companiesState = useCompanies();
+  const analyticsReady =
+    rawIpoState.data != null &&
+    leadCoState.data != null &&
+    companiesState.data != null;
+
   React.useEffect(() => {
-    setHistoryExpanded(false);
-  }, [selectedId]);
+    if (!initialDataProp) return;
+    hydrateUpcomingCache(initialDataProp);
+  }, [initialDataProp]);
+
+  React.useEffect(() => {
+    if (!analyticsReady) return;
+    const data = initialData ?? getPreloadedUpcomingData();
+    if (!data) return;
+    const recommendations = buildRecommendations(data.ipos);
+    setRecs(recommendations);
+    setScrapedAt(data.scrapedAt ?? null);
+    setSelectedId((prev) => prev ?? recommendations[0]?.ipo.id ?? null);
+  }, [analyticsReady, initialData]);
 
   React.useEffect(() => {
     if (recs !== null) return;
@@ -1292,11 +1295,19 @@ export default function UpcomingIpoHero() {
     let active = true;
 
     preloadUpcomingIpos()
-      .then((ipos) => {
+      .then(({ ipos, scrapedAt: ts }) => {
         if (!active) return;
         const recommendations = buildRecommendations(ipos);
         setRecs(recommendations);
-        if (recommendations.length > 0) setSelectedId(recommendations[0].ipo.id);
+        setScrapedAt(ts);
+        if (recommendations.length > 0) {
+          setHistoryExpanded(false);
+          setSelectedId(recommendations[0].ipo.id);
+        }
+      })
+      .catch((error) => {
+        if (!active) return;
+        setLoadError(error instanceof Error ? error.message : String(error));
       });
 
     return () => {
@@ -1327,21 +1338,76 @@ export default function UpcomingIpoHero() {
   const canPrev = selectedIdx > 0;
   const canNext = selectedIdx >= 0 && selectedIdx < filtered.length - 1;
 
-  if (recs !== null && recs.length === 0) return null;
+  if (loadError) {
+    return (
+      <EmptyState
+        title="โหลดข้อมูล IPO ไม่สำเร็จ"
+        detail="ระบบไม่สามารถดึงข้อมูล IPO ที่กำลังจะเข้าเทรดได้ในขณะนี้"
+      />
+    );
+  }
+
+  // recs is computed client-side after mount (see note above). The server and
+  // the first client render both hit this branch — identical output, no
+  // hydration mismatch — then the effects populate recs.
+  if (recs === null) {
+    return (
+      <Box
+        sx={{
+          p: { xs: 1.25, md: 2 },
+          display: "grid",
+          gap: 2,
+          gridTemplateColumns: { xs: "1fr", md: "280px minmax(0, 1fr)" },
+        }}
+      >
+        <Stack spacing={1}>
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} variant="rounded" height={76} sx={{ borderRadius: 2 }} />
+          ))}
+        </Stack>
+        <Skeleton variant="rounded" height={352} sx={{ borderRadius: 2 }} />
+      </Box>
+    );
+  }
+
+  if (recs.length === 0) {
+    return (
+      <EmptyState
+        title="ยังไม่มี IPO ที่กำลังจะเข้าเทรด"
+        detail="เมื่อมีข้อมูลใหม่ รายการและคะแนนแนะนำจะแสดงในส่วนนี้"
+      />
+    );
+  }
 
   return (
     <Box>
       <Box>
         <Box sx={{ px: { xs: 1.5, md: 2 }, py: 1, borderBottom: `1px solid ${colors.borderSoft}`, bgcolor: "#f8fbfd" }}>
-          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-            <Chip
-              label={recs ? `${recs.length} ตัว` : "กำลังโหลด"}
-              size="small"
-              sx={{ height: 22, borderRadius: 1, bgcolor: colors.ink, color: colors.cyan, fontSize: 11, fontWeight: 850 }}
-            />
-            <Typography sx={{ color: colors.muted, fontSize: 12, lineHeight: 1.45 }}>
-              รายการ IPO ที่กำลังจะเข้าเทรด
-            </Typography>
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", rowGap: 0.5 }}
+          >
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
+              <Chip
+                label={recs ? `${recs.length} ตัว` : "กำลังโหลด"}
+                size="small"
+                sx={{ height: 22, borderRadius: 1, bgcolor: colors.ink, color: colors.cyan, fontSize: 11, fontWeight: 850 }}
+              />
+              <Typography sx={{ color: colors.muted, fontSize: 12, lineHeight: 1.45 }}>
+                รายการ IPO ที่กำลังจะเข้าเทรด
+              </Typography>
+            </Stack>
+            {scrapedAt ? (
+              <Tooltip title="เวลาที่ดึงข้อมูลล่าสุดจากการ Scrape (เวลาไทย)" arrow placement="top">
+                <Stack direction="row" spacing={0.5} sx={{ alignItems: "center", color: "#64748b", flexShrink: 0, cursor: "help" }}>
+                  <HistoryRoundedIcon sx={{ fontSize: 14 }} />
+                  <Typography sx={{ fontSize: 11, fontWeight: 700, lineHeight: 1.4 }}>
+                    อัปเดตข้อมูล {formatThaiDateTime(scrapedAt)}
+                  </Typography>
+                </Stack>
+              </Tooltip>
+            ) : null}
           </Stack>
         </Box>
 
@@ -1366,7 +1432,10 @@ export default function UpcomingIpoHero() {
                   setMarketFilter(mk);
                   setFilter("ALL");
                   const newList = mk === "ALL" ? recs : recs.filter((r) => r.ipo.market === mk);
-                  if (newList.length > 0) setSelectedId(newList[0].ipo.id);
+                  if (newList.length > 0) {
+                    setHistoryExpanded(false);
+                    setSelectedId(newList[0].ipo.id);
+                  }
                 }}
                 sx={{
                   height: 30,
@@ -1405,7 +1474,10 @@ export default function UpcomingIpoHero() {
                     onClick={() => {
                       setFilter(f.key);
                       const newFiltered = f.key === "ALL" ? marketFiltered : marketFiltered.filter((r) => r.decision === f.key);
-                      if (newFiltered.length > 0) setSelectedId(newFiltered[0].ipo.id);
+                      if (newFiltered.length > 0) {
+                        setHistoryExpanded(false);
+                        setSelectedId(newFiltered[0].ipo.id);
+                      }
                     }}
                     sx={{
                       height: 30,
@@ -1431,7 +1503,10 @@ export default function UpcomingIpoHero() {
                     aria-label="previous upcoming IPO"
                     disabled={!canPrev}
                     onClick={() => {
-                      if (canPrev) setSelectedId(filtered[selectedIdx - 1].ipo.id);
+                      if (canPrev) {
+                        setHistoryExpanded(false);
+                        setSelectedId(filtered[selectedIdx - 1].ipo.id);
+                      }
                     }}
                     sx={{ width: 32, height: 32, borderRadius: 2, bgcolor: "#ffffff", border: `1px solid ${colors.border}`, "&:hover": { bgcolor: "#eef4fb" } }}
                   >
@@ -1446,7 +1521,10 @@ export default function UpcomingIpoHero() {
                     aria-label="next upcoming IPO"
                     disabled={!canNext}
                     onClick={() => {
-                      if (canNext) setSelectedId(filtered[selectedIdx + 1].ipo.id);
+                      if (canNext) {
+                        setHistoryExpanded(false);
+                        setSelectedId(filtered[selectedIdx + 1].ipo.id);
+                      }
                     }}
                     sx={{ width: 32, height: 32, borderRadius: 2, bgcolor: "#ffffff", border: `1px solid ${colors.border}`, "&:hover": { bgcolor: "#eef4fb" } }}
                   >
@@ -1497,7 +1575,14 @@ export default function UpcomingIpoHero() {
                 <Stack spacing={0.75} direction={{ xs: "row", md: "column" }} sx={{ minWidth: { xs: "max-content", md: "auto" } }}>
                   {filtered.map((rec) => (
                     <Box key={rec.ipo.id} sx={{ minWidth: { xs: 268, md: "auto" } }}>
-                      <IpoListItem rec={rec} selected={rec.ipo.id === selected?.ipo.id} onClick={() => setSelectedId(rec.ipo.id)} />
+                      <IpoListItem
+                        rec={rec}
+                        selected={rec.ipo.id === selected?.ipo.id}
+                        onClick={() => {
+                          setHistoryExpanded(false);
+                          setSelectedId(rec.ipo.id);
+                        }}
+                      />
                     </Box>
                   ))}
                 </Stack>

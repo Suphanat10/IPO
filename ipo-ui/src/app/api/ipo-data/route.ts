@@ -1,28 +1,11 @@
 import { NextResponse } from "next/server";
-import path from "path";
-import { readFile, access } from "fs/promises";
+import { readArtifactRaw, ARTIFACT_CACHE_HEADERS } from "@/lib/artifact";
 
+// Full ipo.json blob. Kept for back-compat; new client code fetches the smaller
+// per-slice endpoints under /api/ipo-data/* instead.
 export async function GET() {
-  // Primary path (works locally + CI builds)
-  const primaryPath = path.join(process.cwd(), "src/app/data/ipo.json");
-  // Fallback path (Vercel serverless — filesystem is read-only, builds write to /tmp)
-  const tmpPath = "/tmp/ipo.json";
-
-  let raw: string;
-  try {
-    // Try /tmp first (freshest data from runtime builds on Vercel)
-    await access(tmpPath);
-    raw = await readFile(tmpPath, "utf-8");
-  } catch {
-    // Fall back to bundled file
-    raw = await readFile(primaryPath, "utf-8");
-  }
-
+  const raw = await readArtifactRaw("src/app/data/ipo.json", "/tmp/ipo.json");
   const data = JSON.parse(raw);
 
-  return NextResponse.json(data, {
-    headers: {
-      "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
-    },
-  });
+  return NextResponse.json(data, { headers: ARTIFACT_CACHE_HEADERS });
 }

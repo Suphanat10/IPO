@@ -51,6 +51,15 @@ function parseCSV(text) {
     });
 }
 
+// Strip stray quote/backslash artifacts and reject punctuation-only tokens.
+function cleanEntityName(s) {
+  return String(s ?? "")
+    .replace(/[\\'"]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s.,/\-–]+|[\s.,/\-–]+$/g, "")
+    .trim();
+}
+
 function parsePyList(s) {
   if (!s) return [];
   const trimmed = s.trim();
@@ -63,11 +72,13 @@ function parsePyList(s) {
   let quote = "";
   for (let i = 0; i < inner.length; i++) {
     const c = inner[i];
+    // "\'" inside a quoted name is a literal quote, not a string terminator.
+    if (inStr && c === "\\" && inner[i + 1] === quote) { buf += quote; i++; continue; }
     if (!inStr && (c === "'" || c === '"')) { inStr = true; quote = c; continue; }
     if (inStr && c === quote) { inStr = false; items.push(buf); buf = ""; continue; }
     if (inStr) buf += c;
   }
-  return items.map((s) => s.trim()).filter(Boolean);
+  return items.map(cleanEntityName).filter(Boolean);
 }
 
 function toNum(v) {
@@ -308,9 +319,14 @@ const FA_COMPANY_LOOKUP = (() => {
 })();
 function normalizeFACompany(name) {
   if (!name) return "";
-  const key = name.trim().toLowerCase().replace(/\s+/g, "");
-  // Strict lookup only — mirrors Python: returns None when not found → row excluded.
-  return FA_COMPANY_LOOKUP.get(key) || "";
+  const trimmed = name.trim();
+  const key = trimmed.toLowerCase().replace(/\s+/g, "");
+  // Fall back to the original name when there is no normalization mapping.
+  // Returning "" here used to silently drop every FA company that wasn't in
+  // fa_company_norm.csv — which, when that table is sparse, wiped fa_companies
+  // out of the entire dataset (FA company + FA person+company analytics had
+  // nothing to match against).
+  return FA_COMPANY_LOOKUP.get(key) || trimmed;
 }
 
 // Sector lookup: symbol → { market, industry, sector }

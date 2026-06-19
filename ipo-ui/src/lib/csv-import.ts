@@ -1,9 +1,16 @@
 // Shared CSV parsing + type detection + normalization for admin import flow.
 // Mirrors the algorithm in scripts/import-csv-to-db.mjs.
 
-export type CsvType = "base" | "financials" | "sector" | "fa_norm" | "unknown";
+export type SupportedCsvType = "base" | "financials" | "sector" | "fa_norm";
 
-export type SupportedCsvType = Exclude<CsvType, "unknown">;
+// "combined" = a single CSV that holds several sections (base + financials +
+// sector) at once. It is not directly committable — the client splits it into
+// its constituent SupportedCsvType parts for preview/commit.
+export type CsvType = SupportedCsvType | "combined" | "unknown";
+
+export const IMPORT_CSV_MAX_FILE_BYTES = 2 * 1024 * 1024;
+export const IMPORT_CSV_MAX_ROWS = 5_000;
+export const IMPORT_PREVIEW_MAX_BODY_BYTES = 6 * 1024 * 1024;
 
 export interface DetectedSchema {
   type: CsvType;
@@ -14,7 +21,7 @@ export interface DetectedSchema {
 }
 
 // Required headers for each type. We accept if symbol + at least one type-specific column appears.
-const SCHEMAS: Record<Exclude<CsvType, "unknown">, { required: string[]; specific: string[] }> = {
+const SCHEMAS: Record<SupportedCsvType, { required: string[]; specific: string[] }> = {
   base: {
     required: ["symbol"],
     specific: [
@@ -68,17 +75,72 @@ export function parseCSV(text: string): Record<string, string>[] {
     .map((r) => Object.fromEntries(header.map((h, i) => [h, r[i]])));
 }
 
+// Minimum number of type-specific columns that must be present for a type to be
+// considered "present" in a combined/multi-section CSV. Keeps a plain base.csv
+// (which contains fa_companies) from being mistaken for an fa_norm file, etc.
+function specificThreshold(specific: string[]): number {
+  return Math.min(2, specific.length);
+}
+
+// Returns every supported type whose columns are present in the header set.
+// A single-section CSV yields one type; a combined export (base + financials +
+// sector in one file) yields several, in import order (base → financials → sector).
+export function detectCsvTypes(headers: string[]): SupportedCsvType[] {
+  const set = new Set(headers);
+  const types: SupportedCsvType[] = [];
+  for (const [type, def] of Object.entries(SCHEMAS) as [SupportedCsvType, typeof SCHEMAS["base"]][]) {
+    if (def.required.some((r) => !set.has(r))) continue;
+    const score = def.specific.filter((c) => set.has(c)).length;
+    if (score >= specificThreshold(def.specific)) types.push(type);
+  }
+  return types;
+}
+
+// Builds a DetectedSchema scoped to one specific type (used when splitting a
+// combined CSV into per-type import items).
+export function schemaForType(headers: string[], type: SupportedCsvType): DetectedSchema {
+  const set = new Set(headers);
+  const def = SCHEMAS[type];
+  const matchedCols = new Set<string>();
+  [...def.required, ...def.specific].forEach((c) => set.has(c) && matchedCols.add(c));
+  return {
+    type,
+    matched: [...matchedCols],
+    unknown: headers.filter((h) => !matchedCols.has(h)),
+    missing: def.specific.filter((c) => !set.has(c)),
+    headers,
+  };
+}
+
+// Builds a DetectedSchema for a combined CSV — marks every column recognized by
+// any of the given sub-types as "matched".
+export function schemaForCombined(headers: string[], types: SupportedCsvType[]): DetectedSchema {
+  const set = new Set(headers);
+  const matchedCols = new Set<string>();
+  for (const type of types) {
+    const def = SCHEMAS[type];
+    [...def.required, ...def.specific].forEach((c) => set.has(c) && matchedCols.add(c));
+  }
+  return {
+    type: "combined",
+    matched: [...matchedCols],
+    unknown: headers.filter((h) => !matchedCols.has(h)),
+    missing: [],
+    headers,
+  };
+}
+
 export function detectSchema(headers: string[]): DetectedSchema {
   const set = new Set(headers);
   let best: { type: CsvType; score: number } = { type: "unknown", score: 0 };
-  for (const [type, def] of Object.entries(SCHEMAS) as [Exclude<CsvType, "unknown">, typeof SCHEMAS["base"]][]) {
+  for (const [type, def] of Object.entries(SCHEMAS) as [SupportedCsvType, typeof SCHEMAS["base"]][]) {
     if (def.required.some((r) => !set.has(r))) continue;
     const score = def.specific.filter((c) => set.has(c)).length;
     if (score > best.score) best = { type, score };
   }
   const matchedCols = new Set<string>();
-  if (best.type !== "unknown") {
-    const def = SCHEMAS[best.type as Exclude<CsvType, "unknown">];
+  if (best.type !== "unknown" && best.type !== "combined") {
+    const def = SCHEMAS[best.type];
     [...def.required, ...def.specific].forEach((c) => set.has(c) && matchedCols.add(c));
   }
   return {
@@ -86,8 +148,8 @@ export function detectSchema(headers: string[]): DetectedSchema {
     matched: [...matchedCols],
     unknown: headers.filter((h) => !matchedCols.has(h)),
     missing:
-      best.type === "unknown" ? [] :
-      SCHEMAS[best.type as Exclude<CsvType, "unknown">].specific.filter((c) => !set.has(c)),
+      best.type === "unknown" || best.type === "combined" ? [] :
+      SCHEMAS[best.type].specific.filter((c) => !set.has(c)),
     headers,
   };
 }
@@ -182,12 +244,19 @@ export function normalizeBaseRow(r: Record<string, string>): BaseImportRow | nul
   const row: BaseImportRow = { symbol };
   if (companyName !== undefined) row.company_name = companyName;
 
+  // Only set listing_date / derive status when the CSV actually carries a date.
+  // A blank first_trade_date cell must NOT overwrite an existing listing_date or
+  // flip a listed IPO to "upcoming" — that previously corrupted historical rows
+  // (e.g. AAV, AOT) on import. Leaving both fields unset preserves the existing
+  // row on update and falls back to the 'listed' default for new inserts.
   const listingRaw = pickFirstPresent(r, "first_trade_date", "listing_date");
   if (listingRaw !== undefined) {
     const listing = dateOrNull(listingRaw);
-    const today = new Date().toISOString().slice(0, 10);
-    row.listing_date = listing;
-    row.status = !listing ? "upcoming" : listing > today ? "upcoming" : "listed";
+    if (listing) {
+      const today = new Date().toISOString().slice(0, 10);
+      row.listing_date = listing;
+      row.status = listing > today ? "upcoming" : "listed";
+    }
   }
 
   setNum(row, "ipo_price", r, "ipo_price");
@@ -286,7 +355,7 @@ export function normalizeFaNormRow(r: Record<string, string>): FaNormImportRow |
 }
 
 // Fields we treat as "required for completeness" per type
-export const COMPLETENESS_FIELDS: Record<Exclude<CsvType, "unknown">, string[]> = {
+export const COMPLETENESS_FIELDS: Record<SupportedCsvType, string[]> = {
   base: ["listing_date", "ipo_price", "close_d1", "fa_companies", "lead_uw"],
   financials: [
     "gross_proceeds", "offered_ratio_pct", "existing_shares_pct",

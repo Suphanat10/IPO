@@ -27,6 +27,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import DashboardRoundedIcon from "@mui/icons-material/DashboardRounded";
 import TableChartRoundedIcon from "@mui/icons-material/TableChartRounded";
 import EventAvailableRoundedIcon from "@mui/icons-material/EventAvailableRounded";
+import HistoryRoundedIcon from "@mui/icons-material/HistoryRounded";
 import CloudDownloadRoundedIcon from "@mui/icons-material/CloudDownloadRounded";
 import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
 import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
@@ -36,8 +37,6 @@ import HandymanRoundedIcon from "@mui/icons-material/HandymanRounded";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { preloadDropdownOptions } from "../lib/useDropdownOptions";
-import { preloadUpcomingIpos } from "./UpcomingIpoHero";
 
 /* ── Navigation data ── */
 
@@ -57,6 +56,7 @@ const TOOLS_NAV: NavItem[] = [
   { href: "/ipo/dashboard", label: "Dashboard", icon: DashboardRoundedIcon, desc: "ภาพรวมระบบ" },
   { href: "/ipo/ipos", label: "IPO Explorer", icon: TableChartRoundedIcon, desc: "ค้นหาและแก้ไขข้อมูล" },
   { href: "/ipo/upcoming", label: "IPO กำลังจะเข้า", icon: EventAvailableRoundedIcon, desc: "ความพร้อมก่อนเข้าตลาด" },
+  { href: "/ipo/predictions", label: "ประวัติ IPO", icon: HistoryRoundedIcon, desc: "คะแนนและผลคำแนะนำ" },
   { href: "/ipo/upcoming/scrape", label: "Scraper", icon: CloudDownloadRoundedIcon, desc: "ดึงข้อมูลจาก SET / SEC" },
   { href: "/ipo/validation", label: "Validation", icon: FactCheckRoundedIcon, desc: "ตรวจคุณภาพข้อมูล" },
   { href: "/ipo/import", label: "Import CSV", icon: UploadFileRoundedIcon, desc: "นำเข้าไฟล์ CSV" },
@@ -73,146 +73,6 @@ function isNavActive(pathname: string, href: string): boolean {
       other.href !== href &&
       other.href.startsWith(href + "/") &&
       pathname.startsWith(other.href),
-  );
-}
-
-/* ── Preload ── */
-
-let homeDataReady = false;
-let homeDataInflight: Promise<void> | null = null;
-
-function preloadHomePageData() {
-  if (homeDataReady) return Promise.resolve();
-  if (!homeDataInflight) {
-    homeDataInflight = Promise.allSettled([
-      preloadUpcomingIpos(),
-      preloadDropdownOptions(),
-    ]).then(() => {
-      homeDataReady = true;
-      homeDataInflight = null;
-    });
-  }
-  return homeDataInflight;
-}
-
-/* ── Loading screen ── */
-
-function HomeLoadingScreen() {
-  return (
-    <Box
-      sx={{
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        bgcolor: "#0a1929",
-        color: "#fff",
-        position: "relative",
-        overflow: "hidden",
-        "&::before": {
-          content: '""',
-          position: "absolute",
-          top: "-40%",
-          left: "50%",
-          transform: "translateX(-50%)",
-          width: "600px",
-          height: "600px",
-          borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(56,189,248,0.08) 0%, transparent 70%)",
-          pointerEvents: "none",
-        },
-      }}
-    >
-      <Stack spacing={4} sx={{ alignItems: "center", zIndex: 1 }}>
-        {/* Logo + spinner */}
-        <Box sx={{ position: "relative", width: 80, height: 80 }}>
-          <Box
-            sx={{
-              position: "absolute",
-              inset: 0,
-              borderRadius: "50%",
-              border: "2px solid rgba(56,189,248,0.08)",
-            }}
-          />
-          <Box
-            sx={{
-              position: "absolute",
-              inset: 0,
-              borderRadius: "50%",
-              border: "2px solid transparent",
-              borderTopColor: "#38bdf8",
-              animation: "spin 1.2s linear infinite",
-              "@keyframes spin": {
-                "0%": { transform: "rotate(0deg)" },
-                "100%": { transform: "rotate(360deg)" },
-              },
-            }}
-          />
-          <Box
-            sx={{
-              position: "absolute",
-              inset: 0,
-              display: "grid",
-              placeItems: "center",
-            }}
-          >
-            <Image
-              src="/logo.c3dc7eeab8aedb0021bc.png"
-              alt="IPO Logo"
-              width={36}
-              height={36}
-              style={{ objectFit: "contain" }}
-              priority
-            />
-          </Box>
-        </Box>
-
-        {/* Text */}
-        <Stack spacing={0.75} sx={{ alignItems: "center", textAlign: "center" }}>
-          <Typography
-            sx={{
-              fontSize: { xs: 16, md: 18 },
-              fontWeight: 700,
-              letterSpacing: "-0.01em",
-            }}
-          >
-            IPO Analytics
-          </Typography>
-          <Typography
-            sx={{
-              fontSize: 13,
-              color: "rgba(255,255,255,0.35)",
-              fontWeight: 500,
-            }}
-          >
-            กำลังเตรียมข้อมูลวิเคราะห์
-          </Typography>
-        </Stack>
-
-        {/* Dots loader */}
-        <Stack direction="row" spacing={1}>
-          {[0, 1, 2].map((i) => (
-            <Box
-              key={i}
-              sx={{
-                width: 6,
-                height: 6,
-                borderRadius: "50%",
-                bgcolor: "#38bdf8",
-                opacity: 0.3,
-                animation: "pulse 1.4s ease-in-out infinite",
-                animationDelay: `${i * 0.2}s`,
-                "@keyframes pulse": {
-                  "0%, 80%, 100%": { opacity: 0.3, transform: "scale(1)" },
-                  "40%": { opacity: 1, transform: "scale(1.3)" },
-                },
-              }}
-            />
-          ))}
-        </Stack>
-      </Stack>
-    </Box>
   );
 }
 
@@ -386,34 +246,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [drawerOpen, setDrawerOpen] = React.useState(false);
-  const isHome = pathname === "/";
   const isAdmin = pathname.startsWith("/ipo");
-  const [homeReady, setHomeReady] = React.useState(() => homeDataReady);
-
-  React.useEffect(() => {
-    if (!isHome || homeDataReady) return;
-
-    let active = true;
-    const fallbackId = window.setTimeout(() => {
-      if (!active) return;
-      homeDataReady = true;
-      setHomeReady(true);
-    }, 8000);
-
-    preloadHomePageData().finally(() => {
-      window.clearTimeout(fallbackId);
-      if (active) setHomeReady(true);
-    });
-
-    return () => {
-      active = false;
-      window.clearTimeout(fallbackId);
-    };
-  }, [isHome]);
-
-  if (isHome && !homeDataReady && !homeReady) {
-    return <HomeLoadingScreen />;
-  }
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "#f0f2f5" }}>

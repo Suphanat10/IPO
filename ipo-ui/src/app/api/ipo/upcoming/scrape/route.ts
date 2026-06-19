@@ -5,25 +5,15 @@ import { after } from "next/server";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-function unauthorizedCronResponse(message: string, status: number) {
-  return Response.json({ error: message }, { status });
-}
-
-function validateCronRequest(request: Request) {
+/** When CRON_SECRET is set, the public cron entry (GET) must present it as a
+ *  Bearer token — this is what Vercel Cron sends. Without it, anyone hitting
+ *  the URL could repeatedly kick off the 300s scrape job. If the secret is
+ *  unset (local/personal dev) the gate is a no-op so nothing breaks. */
+function cronSecretRejection(request: Request): Response | null {
   const secret = process.env.CRON_SECRET;
-  if (!secret) {
-    if (process.env.VERCEL_ENV === "production") {
-      return unauthorizedCronResponse("CRON_SECRET is not configured.", 500);
-    }
-    return null;
-  }
-
-  const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${secret}`) {
-    return unauthorizedCronResponse("Unauthorized cron request.", 401);
-  }
-
-  return null;
+  if (!secret) return null;
+  if (request.headers.get("authorization") === `Bearer ${secret}`) return null;
+  return Response.json({ error: "Unauthorized" }, { status: 401 });
 }
 
 async function startScrape(triggeredBy: string) {
@@ -53,9 +43,8 @@ async function startScrape(triggeredBy: string) {
 }
 
 export async function GET(request: Request) {
-  const unauthorized = validateCronRequest(request);
-  if (unauthorized) return unauthorized;
-
+  const rejected = cronSecretRejection(request);
+  if (rejected) return rejected;
   return startScrape("vercel-cron");
 }
 

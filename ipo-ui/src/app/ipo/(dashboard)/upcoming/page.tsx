@@ -3,6 +3,7 @@
 import { Stack } from "@mui/material";
 import Alert from "@mui/material/Alert";
 import { getUpcomingIpos } from "@/lib/admin/queries";
+import { getLatestScrapeRunAt } from "@/lib/scrape-runs";
 import {
   AdminPageHeader,
   AdminPanel,
@@ -36,6 +37,15 @@ export default async function UpcomingIposPage() {
     );
   }
 
+  // Best-effort: when the scraper last ran (reflects a data refresh even when
+  // nothing changed). Never block the page on it.
+  let lastScrapedAt: string | null = null;
+  try {
+    lastScrapedAt = await getLatestScrapeRunAt();
+  } catch {
+    lastScrapedAt = null;
+  }
+
   return (
     <Stack spacing={3}>
       <AdminPageHeader
@@ -47,7 +57,7 @@ export default async function UpcomingIposPage() {
       <ListingReadinessDashboard rows={rows} />
 
       <AdminPanel title="รายการเข้าตลาดที่กำลังจะมา" subtitle="กระดานติดตาม IPO แบบตลาดหุ้น พร้อมคะแนนคำแนะนำ วันเข้าเทรด ที่ปรึกษา ผู้จัดจำหน่าย และความครบถ้วนของข้อมูล" noPadding>
-        <UpcomingTable rows={rows} />
+        <UpcomingTable rows={rows} lastScrapedAt={lastScrapedAt} />
       </AdminPanel>
     </Stack>
   );

@@ -1,5 +1,4 @@
 import { query, isDatabaseConfigured } from "@/lib/db";
-import { syncMaturedIpoStatuses } from "@/lib/ipo-status";
 
 export async function GET() {
   if (!isDatabaseConfigured()) {
@@ -8,8 +7,6 @@ export async function GET() {
       { status: 503 },
     );
   }
-
-  await syncMaturedIpoStatuses();
 
   const [statsRows, buildsRows] = await Promise.all([
     query("SELECT * FROM v_dashboard_stats LIMIT 1"),

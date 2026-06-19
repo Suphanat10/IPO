@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   Box,
   Button,
+  CircularProgress,
   InputAdornment,
   MenuItem,
   Paper,
@@ -18,7 +19,7 @@ import RestartAltRoundedIcon from "@mui/icons-material/RestartAltRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import WarningRoundedIcon from "@mui/icons-material/WarningRounded";
 import Link from "next/link";
-import { toDateOnly } from "@/lib/date-format";
+import { toDateOnly, formatThaiDateTime } from "@/lib/date-format";
 import type { UpcomingRow } from "@/lib/admin/types";
 import type { DecisionLabel } from "@/app/lib/scoring";
 import {
@@ -26,6 +27,7 @@ import {
   preloadUpcomingIpos,
   type UpcomingIpo,
 } from "../../../components/UpcomingIpoHero";
+import { useRawIpo, useLeadCo, useCompanies } from "@/app/lib/ipoDataClient";
 import {
   ADMIN_RADIUS,
   adminColors,
@@ -591,31 +593,58 @@ function searchText(row: UpcomingRow) {
     .toLowerCase();
 }
 
-export default function UpcomingTable({ rows }: { rows: UpcomingRow[] }) {
+export default function UpcomingTable({
+  rows,
+  lastScrapedAt,
+}: {
+  rows: UpcomingRow[];
+  lastScrapedAt?: string | null;
+}) {
   const [query, setQuery] = React.useState("");
   const [urgency, setUrgency] = React.useState("all");
   const [completeness, setCompleteness] = React.useState("all");
   const [sortKey, setSortKey] = React.useState<SortKey>("score");
   const [recoById, setRecoById] = React.useState<Record<number, RecommendationSummary>>({});
   const [pendingScrapeByIpoId, setPendingScrapeByIpoId] = React.useState<Record<number, number>>({});
+  const [loadingRecommendations, setLoadingRecommendations] = React.useState(true);
+  const [loadingScrapeFiles, setLoadingScrapeFiles] = React.useState(true);
+
+  // buildRecommendation reads injected analytics data; wait for the slices.
+  const rawIpoState = useRawIpo();
+  const leadCoState = useLeadCo();
+  const companiesState = useCompanies();
+  const analyticsReady =
+    rawIpoState.data != null &&
+    leadCoState.data != null &&
+    companiesState.data != null;
 
   React.useEffect(() => {
+    if (!analyticsReady) return;
     let active = true;
-    preloadUpcomingIpos().then((ipos) => {
-      if (!active) return;
-      const map: Record<number, RecommendationSummary> = {};
-      for (const ipo of ipos) {
-        map[ipo.id] = recoFromIpo(ipo);
-      }
-      setRecoById(map);
-    });
+    setLoadingRecommendations(true);
+    preloadUpcomingIpos()
+      .then(({ ipos }) => {
+        if (!active) return;
+        const map: Record<number, RecommendationSummary> = {};
+        for (const ipo of ipos) {
+          map[ipo.id] = recoFromIpo(ipo);
+        }
+        setRecoById(map);
+      })
+      .catch(() => {
+        if (active) setRecoById({});
+      })
+      .finally(() => {
+        if (active) setLoadingRecommendations(false);
+      });
     return () => {
       active = false;
     };
-  }, []);
+  }, [analyticsReady]);
 
   React.useEffect(() => {
     let active = true;
+    setLoadingScrapeFiles(true);
     fetch("/api/ipo/upcoming/source-files?resolved=false&status=needs_review&limit=500", {
       cache: "no-store",
     })
@@ -631,6 +660,9 @@ export default function UpcomingTable({ rows }: { rows: UpcomingRow[] }) {
       })
       .catch(() => {
         if (active) setPendingScrapeByIpoId({});
+      })
+      .finally(() => {
+        if (active) setLoadingScrapeFiles(false);
       });
     return () => {
       active = false;
@@ -693,6 +725,11 @@ export default function UpcomingTable({ rows }: { rows: UpcomingRow[] }) {
     () => filteredRows.reduce((sum, row) => sum + row.pending_scrape_count, 0),
     [filteredRows],
   );
+  const loadingDetails = loadingRecommendations || loadingScrapeFiles;
+
+  // When the scraper last ran (from scrape_runs). Reflects a data refresh even
+  // when nothing changed — shown on the table header.
+  const lastUpdated = lastScrapedAt ? new Date(lastScrapedAt) : null;
 
   function clearFilters() {
     setQuery("");
@@ -811,7 +848,7 @@ export default function UpcomingTable({ rows }: { rows: UpcomingRow[] }) {
           <Stack
             spacing={0.2}
             sx={{
-              minWidth: 104,
+              minWidth: 140,
               alignItems: { xs: "flex-end", lg: "flex-start" },
             }}
           >
@@ -821,12 +858,32 @@ export default function UpcomingTable({ rows }: { rows: UpcomingRow[] }) {
             >
               {filteredRows.length.toLocaleString()} / {rows.length.toLocaleString()} รายการ
             </Typography>
+            {loadingDetails ? (
+              <Stack direction="row" spacing={0.6} sx={{ alignItems: "center", minHeight: 16 }}>
+                <CircularProgress size={12} thickness={5} sx={{ color: adminColors.accent }} />
+                <Typography
+                  variant="caption"
+                  sx={{ color: adminColors.muted, fontWeight: 750, lineHeight: 1.2, whiteSpace: "nowrap" }}
+                >
+                  กำลังโหลดข้อมูล
+                </Typography>
+              </Stack>
+            ) : null}
             <Typography
               variant="caption"
               sx={{ color: pendingReviewCount > 0 ? "#c2410c" : adminColors.muted, fontWeight: 750, lineHeight: 1.2 }}
             >
               Scraper {pendingReviewCount.toLocaleString()}
             </Typography>
+            {lastUpdated ? (
+              <Typography
+                variant="caption"
+                sx={{ color: adminColors.muted, fontWeight: 700, lineHeight: 1.2, whiteSpace: "nowrap" }}
+                title="วันและเวลาที่ scraper ดึงข้อมูลล่าสุด (รันสำเร็จล่าสุด)"
+              >
+                อัปเดต {formatThaiDateTime(lastUpdated)}
+              </Typography>
+            ) : null}
           </Stack>
         </Stack>
       </Stack>

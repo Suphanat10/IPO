@@ -1,14 +1,13 @@
 import type { ComputedFundamental } from "./AnalysisContext";
+import type { FactorTierStats, PeerGroupStats } from "./mockData";
 import {
-  globalFundamentalStats,
-  peerByIndustry,
-  peerBySector,
-  sectorMapping,
-  sectorParent,
-  tierThresholds,
-  type FactorTierStats,
-  type PeerGroupStats,
-} from "./mockData";
+  getGlobalFundamentalStats,
+  getPeerByIndustry,
+  getPeerBySector,
+  getSectorMapping,
+  getSectorParent,
+  getTierThresholds,
+} from "./analyticsData";
 
 // Mirrors the Python `analyze_ipo_v4` spec the user provided. For each input
 // factor we bucket the value into a tier, then look up the precomputed stats
@@ -71,12 +70,14 @@ const FACTORS: FactorDef[] = [
 
 function classifyFloat(fraction: number): "low" | "medium" | "high" {
   // value is fraction (0.28 = 28%)
+  const tierThresholds = getTierThresholds();
   if (fraction <= tierThresholds.float.low) return "low";
   if (fraction <= tierThresholds.float.medium) return "medium";
   return "high";
 }
 
 function classifyExisting(fraction: number): "none" | "low" | "medium" | "high" {
+  const tierThresholds = getTierThresholds();
   if (fraction === 0) return "none";
   if (fraction <= tierThresholds.existing.q1) return "low";
   if (fraction <= tierThresholds.existing.q2) return "medium";
@@ -84,6 +85,7 @@ function classifyExisting(fraction: number): "none" | "low" | "medium" | "high" 
 }
 
 function classifyExec(pct: number): "low" | "mid" | "high" {
+  const tierThresholds = getTierThresholds();
   if (pct < tierThresholds.exec.low) return "low";
   if (pct < tierThresholds.exec.mid) return "mid";
   return "high";
@@ -110,6 +112,9 @@ export type SectorResolution =
   | null;
 
 export function mapUserSectorInput(input: string): SectorResolution {
+  const peerBySector = getPeerBySector();
+  const peerByIndustry = getPeerByIndustry();
+  const sectorMapping = getSectorMapping();
   const text = input.trim().toLowerCase();
   if (!text) return null;
   // exact sector match
@@ -204,6 +209,9 @@ function resolveEYPeer(input: string): {
   peer: PeerGroupStats | null;
   groupName: string;
 } {
+  const peerBySector = getPeerBySector();
+  const peerByIndustry = getPeerByIndustry();
+  const sectorParent = getSectorParent();
   const mapped = mapUserSectorInput(input);
   if (!mapped) return { peer: null, groupName: "" };
 
@@ -253,6 +261,8 @@ export function computeFundamentalFactors(
     return Number.isFinite(n) ? n : null;
   };
 
+  const globalFundamentalStats = getGlobalFundamentalStats();
+  const tierThresholds = getTierThresholds();
   const factors: FactorAnalysis[] = [];
   const warnings: string[] = [];
   let eyPeerGroup: string | null = null;

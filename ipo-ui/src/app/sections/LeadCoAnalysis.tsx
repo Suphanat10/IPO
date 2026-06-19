@@ -18,12 +18,7 @@ import MetricPill from "../components/MetricPill";
 import ReferenceLink from "../components/ReferenceLink";
 import { useAnalysis } from "../lib/AnalysisContext";
 import { useDropdownOptions } from "../lib/useDropdownOptions";
-import {
-  coUnderwriterOptions as mockCoOptions,
-  leadCoSummary,
-  leadUnderwriterOptions as mockLeadOptions,
-  leadUnderwritersSummary,
-} from "../lib/mockData";
+import { useSummary, useLeadCo, useRawIpo } from "../lib/ipoDataClient";
 import type { LeadCoSummaryRow, SummaryRow } from "../lib/types";
 import { parseCoList } from "../lib/leadCoStats";
 import ConclusionView from "../components/ConclusionView";
@@ -97,19 +92,22 @@ export default function LeadCoAnalysis() {
   const { leadCo, setLeadCo } = useAnalysis();
   const [tab, setTab] = React.useState(0);
   const dbOpts = useDropdownOptions();
+  const summaryData = useSummary().data;
+  const leadCoData = useLeadCo().data;
+  const rawIpoData = useRawIpo().data;
   const leadUnderwriterOptions = React.useMemo(
     () =>
-      [...new Set([...mockLeadOptions, ...dbOpts.underwriters])].sort((a, b) =>
-        a.localeCompare(b, "th"),
+      [...new Set([...(summaryData?.leadUnderwriterOptions ?? []), ...dbOpts.underwriters])].sort(
+        (a, b) => a.localeCompare(b, "th"),
       ),
-    [dbOpts.underwriters],
+    [summaryData, dbOpts.underwriters],
   );
   const coUnderwriterOptions = React.useMemo(
     () =>
-      [...new Set([...mockCoOptions, ...dbOpts.underwriters])].sort((a, b) =>
-        a.localeCompare(b, "th"),
+      [...new Set([...(summaryData?.coUnderwriterOptions ?? []), ...dbOpts.underwriters])].sort(
+        (a, b) => a.localeCompare(b, "th"),
       ),
-    [dbOpts.underwriters],
+    [summaryData, dbOpts.underwriters],
   );
 
   const lead = leadCo.lead;
@@ -118,21 +116,21 @@ export default function LeadCoAnalysis() {
   const coList = React.useMemo(() => parseCoList(co), [co]);
 
   const leadRow = React.useMemo(
-    () => (lead ? leadUnderwritersSummary.find((r) => r.name === lead) : undefined),
-    [lead],
+    () => (lead ? summaryData?.leadUnderwriters.find((r) => r.name === lead) : undefined),
+    [lead, summaryData],
   );
   const pairRow = React.useMemo(
     () =>
       lead && coList[0]
-        ? leadCoSummary.find((r) => r.name === lead && r.co === coList[0])
+        ? leadCoData?.leadCo.find((r) => r.name === lead && r.co === coList[0])
         : undefined,
-    [lead, coList],
+    [lead, coList, leadCoData],
   );
 
-  // Python-spec conclusions
+  // Python-spec conclusions (recompute once analytics slices are injected)
   const conclusion = React.useMemo(
     () => generateLeadCoConclusion(lead, co),
-    [lead, co],
+    [lead, co, rawIpoData, leadCoData],
   );
 
   return (
@@ -162,8 +160,8 @@ export default function LeadCoAnalysis() {
                   />
                   <ReferenceLink
                     example={{
-                      value: leadUnderwritersSummary[0]?.name,
-                      excerpt: `ผู้จัดการการจัดจำหน่าย (ตัวอย่าง): ${leadUnderwritersSummary[0]?.name ?? "-"}`,
+                      value: summaryData?.leadUnderwriters[0]?.name,
+                      excerpt: `ผู้จัดการการจัดจำหน่าย (ตัวอย่าง): ${summaryData?.leadUnderwriters[0]?.name ?? "-"}`,
                       source: "Filing: หัวข้อ การจอง การจำหน่าย และการจัดสรร",
                       note: "กรอกชื่อให้ตรงรายการ เพื่อดึงสถิติย้อนหลังได้ทันที",
                     }}
@@ -193,8 +191,8 @@ export default function LeadCoAnalysis() {
                   />
                   <ReferenceLink
                     example={{
-                      value: leadCoSummary[0]?.co,
-                      excerpt: `ผู้ร่วมจัดจำหน่าย (ตัวอย่าง): ${leadCoSummary[0]?.co ?? "-"}`,
+                      value: leadCoData?.leadCo[0]?.co,
+                      excerpt: `ผู้ร่วมจัดจำหน่าย (ตัวอย่าง): ${leadCoData?.leadCo[0]?.co ?? "-"}`,
                       source: "Filing: หัวข้อ การจอง การจำหน่าย และการจัดสรร",
                       note: "ใส่หลายรายได้ด้วย , (comma)",
                     }}

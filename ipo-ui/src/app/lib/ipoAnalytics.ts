@@ -3,8 +3,12 @@
 //
 // Produces structured results — no rendering. UI components consume these.
 
-import { rawIpo, leadCoIndex, rawIpoBySymbol } from "./mockData";
 import type { RawIpoRow } from "./mockData";
+import {
+  getRawIpo,
+  getLeadCoIndex,
+  getRawIpoBySymbol,
+} from "./analyticsData";
 import { parseCoList } from "./leadCoStats";
 
 export const MIN_SAMPLE = 5;
@@ -14,17 +18,29 @@ export const SCORE_THRESHOLD = 0.5;
 
 // ---------- name matching helpers ----------
 
-function looseEq(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  const norm = (s: string) =>
-    s.trim().toLowerCase().replace(/\s+/g, "").replace(/[()."]/g, "");
-  return norm(a) === norm(b);
+// Drop Thai tone marks / diacritics (U+0E47–U+0E4E, phinthu U+0E3A) so spelling
+// variants of the same name match. The same FA company is written inconsistently
+// across sources — e.g. SEC gives "แอดไวเซอรี่" while the historical DB row has
+// "แอดไวเซอรี" (differing only by ◌่) — and without this they never matched.
+const THAI_DIACRITICS = /[็-๎ฺ]/g;
+
+function normName(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[()."]/g, "")
+    .replace(THAI_DIACRITICS, "");
 }
 
-function looseIncludes(stored: string, query: string): boolean {
-  const n = (s: string) => s.trim().toLowerCase().replace(/\s+/g, "");
-  const s = n(stored);
-  const q = n(query);
+export function looseEq(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  return normName(a) === normName(b);
+}
+
+export function looseIncludes(stored: string, query: string): boolean {
+  const s = normName(stored);
+  const q = normName(query);
   if (!s || !q) return false;
   return s.includes(q) || q.includes(s);
 }
@@ -254,13 +270,13 @@ function tokenMatch(stored: string, query: string): boolean {
   return stored.split(",").some((tok) => looseEq(tok, query) || looseIncludes(tok, query));
 }
 export function filterByPerson(person: string): RawIpoRow[] {
-  return rawIpo.filter((r) => tokenMatch(r.fa_persons, person));
+  return getRawIpo().filter((r) => tokenMatch(r.fa_persons, person));
 }
 export function filterByCompany(company: string): RawIpoRow[] {
-  return rawIpo.filter((r) => tokenMatch(r.fa_companies, company));
+  return getRawIpo().filter((r) => tokenMatch(r.fa_companies, company));
 }
 export function filterByPersonAndCompany(person: string, company: string): RawIpoRow[] {
-  return rawIpo.filter(
+  return getRawIpo().filter(
     (r) => tokenMatch(r.fa_persons, person) && tokenMatch(r.fa_companies, company),
   );
 }
@@ -294,8 +310,9 @@ export function selectFADataset(
 // AND a co underwriter — IPOs with no co are excluded, matching Python behaviour.
 
 function symbolsFromIndex(predicate: (l: string, c: string) => boolean): RawIpoRow[] {
+  const rawIpoBySymbol = getRawIpoBySymbol();
   const syms = new Set<string>();
-  for (const [sym, l, c] of leadCoIndex) {
+  for (const [sym, l, c] of getLeadCoIndex()) {
     if (predicate(l, c)) syms.add(sym);
   }
   return Array.from(syms)

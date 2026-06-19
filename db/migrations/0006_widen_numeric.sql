@@ -13,6 +13,11 @@ DROP VIEW IF EXISTS v_ipo_missing_fields CASCADE;
 DROP VIEW IF EXISTS v_upcoming_ipos       CASCADE;
 DROP VIEW IF EXISTS v_dashboard_stats     CASCADE;
 DROP VIEW IF EXISTS v_ipo_completeness    CASCADE;
+-- These two stats views (added in 0005) also read ipos.close_d1/ipo_price, so
+-- they block the ALTER below too. They are unused by the app and get dropped
+-- permanently in 0012/0020, so we drop without rebuilding.
+DROP VIEW IF EXISTS v_underwriter_stats   CASCADE;
+DROP VIEW IF EXISTS v_fa_company_stats    CASCADE;
 
 -- 2. Widen ipo_financials columns
 ALTER TABLE ipo_financials

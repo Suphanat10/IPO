@@ -24,20 +24,14 @@ import ReferenceLink from "../components/ReferenceLink";
 import { useAnalysis } from "../lib/AnalysisContext";
 import { useDropdownOptions } from "../lib/useDropdownOptions";
 import type { EntityType, SummaryRow } from "../lib/types";
-import {
-  faCompaniesSummary,
-  faPersonsSummary,
-  leadUnderwritersSummary,
-} from "../lib/mockData";
+import { useSummary } from "../lib/ipoDataClient";
 
-const CONFIG: Record<EntityType, { rows: SummaryRow[]; label: string }> = {
-  "FA Person": { rows: faPersonsSummary, label: "FA Person" },
-  "FA Company": { rows: faCompaniesSummary, label: "FA Company" },
-  "Lead Underwriter": {
-    rows: leadUnderwritersSummary,
-    label: "Lead Underwriter",
-  },
+const ENTITY_LABELS: Record<EntityType, string> = {
+  "FA Person": "FA Person",
+  "FA Company": "FA Company",
+  "Lead Underwriter": "Lead Underwriter",
 };
+const ENTITY_TYPES = Object.keys(ENTITY_LABELS) as EntityType[];
 
 const METRICS: { key: keyof SummaryRow; label: string; unit?: "pct" | "num" }[] = [
   { key: "ipo_count", label: "IPO Count", unit: "num" },
@@ -82,8 +76,17 @@ export default function ComparePerformance() {
   const { compare, setCompare } = useAnalysis();
   const { type, nameA, nameB } = compare;
   const dbOpts = useDropdownOptions();
+  const summaryState = useSummary();
 
-  const rows = CONFIG[type].rows;
+  const rows = React.useMemo<SummaryRow[]>(() => {
+    const s = summaryState.data;
+    if (!s) return [];
+    return type === "FA Person"
+      ? s.faPersons
+      : type === "FA Company"
+        ? s.faCompanies
+        : s.leadUnderwriters;
+  }, [summaryState.data, type]);
   const summaryNames = React.useMemo(
     () => new Set(rows.map((r) => r.name)),
     [rows],
@@ -133,6 +136,25 @@ export default function ComparePerformance() {
     return { aWins, bWins, ties };
   }, [comparisonRows]);
 
+  if (summaryState.loading || summaryState.error) {
+    return (
+      <SectionCard
+        title="Compare Performance"
+        subtitle="เปรียบเทียบสถิติของ FA / Underwriter สองรายแบบตัวต่อตัว"
+        icon={<CompareArrowsRoundedIcon fontSize="small" />}
+      >
+        <Typography
+          variant="body2"
+          color={summaryState.error ? "error" : "text.secondary"}
+        >
+          {summaryState.error
+            ? "โหลดข้อมูลไม่สำเร็จ ลองรีเฟรชหน้าอีกครั้ง"
+            : "กำลังโหลดข้อมูล…"}
+        </Typography>
+      </SectionCard>
+    );
+  }
+
   return (
     <SectionCard
       title="Compare Performance"
@@ -164,7 +186,7 @@ export default function ComparePerformance() {
                   });
                 }}
               >
-                {(Object.keys(CONFIG) as EntityType[]).map((k) => (
+                {ENTITY_TYPES.map((k) => (
                   <MenuItem key={k} value={k}>
                     {k}
                   </MenuItem>
@@ -264,7 +286,7 @@ export default function ComparePerformance() {
               >
                 <Box>
                   <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-                    Compare {CONFIG[type].label}
+                    Compare {ENTITY_LABELS[type]}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
                     อ่านคอลัมน์ส่วนต่าง: ค่าบวก = ฝั่ง A สูงกว่า, ค่าลบ = ฝั่ง B สูงกว่า

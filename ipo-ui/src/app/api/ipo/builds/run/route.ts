@@ -1,27 +1,71 @@
-import { query, isDatabaseConfigured } from "@/lib/db";
+import pool, { query, isDatabaseConfigured } from "@/lib/db";
 import { runBuild } from "@/lib/builder";
 import { after } from "next/server";
+import type { PoolClient } from "pg";
 
 export const dynamic = "force-dynamic";
 
 const STALE_MINUTES = 10;
+const BUILD_LOCK_NAMESPACE = 743_101;
+const BUILD_LOCK_ID = 1;
 
 let runningPromise: Promise<void> | null = null;
 let runningId: number | null = null;
 
-function runBuildInBackground(runId: number) {
-  if (runningPromise) return runningPromise;
+async function tryAcquireBuildLock(): Promise<PoolClient | null> {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query<{ locked: boolean }>(
+      "SELECT pg_try_advisory_lock($1, $2) AS locked",
+      [BUILD_LOCK_NAMESPACE, BUILD_LOCK_ID],
+    );
+    if (rows[0]?.locked) return client;
+    client.release();
+    return null;
+  } catch (error) {
+    client.release();
+    throw error;
+  }
+}
 
+async function releaseBuildLock(client: PoolClient) {
+  try {
+    await client.query("SELECT pg_advisory_unlock($1, $2)", [
+      BUILD_LOCK_NAMESPACE,
+      BUILD_LOCK_ID,
+    ]);
+  } catch (error) {
+    console.error(
+      "[build] failed to release advisory lock:",
+      error instanceof Error ? error.message : String(error),
+    );
+  } finally {
+    client.release();
+  }
+}
+
+async function getActiveBuildRun() {
+  const rows = await query<{ id: number }>(
+    `SELECT id FROM build_runs
+     WHERE status IN ('queued', 'running')
+     ORDER BY started_at DESC NULLS LAST, id DESC
+     LIMIT 1`,
+  );
+  return rows[0] ?? null;
+}
+
+function runBuildInBackground(runId: number, lockClient: PoolClient) {
   runningId = runId;
   runningPromise = (async () => {
     try {
       await runBuild(runId);
     } catch (err) {
       console.error(`[build #${runId}] failed:`, err);
-      // runBuild already updates build_runs on failure
+      // runBuild already updates build_runs on failure.
     } finally {
       runningPromise = null;
       runningId = null;
+      await releaseBuildLock(lockClient);
     }
   })();
 
@@ -43,45 +87,66 @@ export async function POST(request: Request) {
       triggerType = body.trigger_type;
     }
   } catch {
-    // empty body is fine
+    // Empty body is fine.
   }
 
-  // Block if a build is actually running in this process
-  if (runningPromise && runningId) {
+  const lockClient = await tryAcquireBuildLock();
+  if (!lockClient) {
+    const activeRun = await getActiveBuildRun();
     return Response.json({
-      runId: runningId,
+      runId: activeRun?.id ?? null,
       status: "running",
       message: "A build is already running",
     });
   }
 
-  // Clean up stale queued/running rows (server restart, crash, etc.)
-  await query(
-    `UPDATE build_runs SET status = 'failed', finished_at = NOW(), error_message = 'Stale: cleaned up — no active process' WHERE status IN ('queued', 'running') AND (started_at IS NULL OR started_at < NOW() - INTERVAL '${STALE_MINUTES} minutes')`,
-  );
-
-  const runs = await query<{ id: number }>(
-    "INSERT INTO build_runs (trigger_type, status, started_at) VALUES ($1, 'running', NOW()) RETURNING id",
-    [triggerType],
-  );
-  const run = runs[0];
-
-  if (!run) {
-    return Response.json(
-      { error: "Failed to create build run" },
-      { status: 500 },
+  try {
+    await query(
+      `UPDATE build_runs
+       SET status = 'failed',
+           finished_at = NOW(),
+           error_message = 'Stale: cleaned up - no active build lock'
+       WHERE status IN ('queued', 'running')
+         AND (started_at IS NULL OR started_at < NOW() - ($1::int * INTERVAL '1 minute'))`,
+      [STALE_MINUTES],
     );
+
+    const activeRun = await getActiveBuildRun();
+    if (activeRun) {
+      await releaseBuildLock(lockClient);
+      return Response.json({
+        runId: activeRun.id,
+        status: "running",
+        message: "A build run is already recorded as active",
+      });
+    }
+
+    const runs = await query<{ id: number }>(
+      "INSERT INTO build_runs (trigger_type, status, started_at) VALUES ($1, 'running', NOW()) RETURNING id",
+      [triggerType],
+    );
+    const run = runs[0];
+
+    if (!run) {
+      await releaseBuildLock(lockClient);
+      return Response.json(
+        { error: "Failed to create build run" },
+        { status: 500 },
+      );
+    }
+
+    const completion = runBuildInBackground(run.id, lockClient);
+    after(() => completion);
+
+    return Response.json({
+      runId: run.id,
+      status: "running",
+      message: "Build started",
+    });
+  } catch (error) {
+    await releaseBuildLock(lockClient);
+    throw error;
   }
-
-  const completion = runBuildInBackground(run.id);
-  // Keep Vercel function alive while build runs in background
-  after(() => completion);
-
-  return Response.json({
-    runId: run.id,
-    status: "running",
-    message: "Build started",
-  });
 }
 
 export async function GET() {
@@ -89,8 +154,9 @@ export async function GET() {
     return Response.json({ running: false });
   }
 
+  const activeRun = await getActiveBuildRun();
   return Response.json({
-    running: runningPromise != null,
-    runId: runningId,
+    running: activeRun != null || runningPromise != null,
+    runId: activeRun?.id ?? runningId,
   });
 }

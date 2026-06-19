@@ -1,4 +1,11 @@
-import { query, buildInsert, buildUpsert, buildUpdate } from "./db";
+import {
+  query,
+  buildInsert,
+  buildUpsert,
+  buildUpdate,
+  withTransaction,
+  type TransactionClient,
+} from "./db";
 import {
   extractSecSourceFile,
   type SecFileExtraction,
@@ -159,10 +166,14 @@ const IPO_FINANCIAL_COLUMNS: (keyof FsFinancialFields)[] = [
  * recognized numeric columns that are present (non-null/finite) in `fields`.
  * Returns the list of columns actually written. Throws on DB error so callers
  * can decide whether to mark the source file as error/needs_review.
+ *
+ * Pass `client` to run the upsert on an open transaction so the import and the
+ * sec_source_files status update commit (or roll back) together.
  */
 export async function importFsFinancials(
   ipoId: number,
   fields: FsFinancialFields,
+  client?: TransactionClient,
 ): Promise<(keyof FsFinancialFields)[]> {
   const data: Record<string, unknown> = { ipo_id: ipoId };
   const written: (keyof FsFinancialFields)[] = [];
@@ -175,7 +186,11 @@ export async function importFsFinancials(
   }
   if (written.length === 0) return [];
   const { text, values } = buildUpsert("ipo_financials", data, "ipo_id", written);
-  await query(text, values);
+  if (client) {
+    await client.query(text, values);
+  } else {
+    await query(text, values);
+  }
   return written;
 }
 
@@ -196,6 +211,34 @@ export async function getLatestShaForTransId(
     return rows[0]?.content_sha256 ?? null;
   } catch (err) {
     console.error("[sec-source-files] Failed to read latest sha:", err);
+    return null;
+  }
+}
+
+/**
+ * Return the extracted fields of the most recently staged row for a given
+ * logical SEC file (TransID + file sequence). The pipeline uses this to skip
+ * re-staging an extraction that is identical to what is already on file — only a
+ * changed value or a newly-appearing column should produce a new staged row.
+ * Returns null when nothing has been staged yet (or on error). Never throws.
+ */
+export async function getLatestStagedFields(
+  transId: string | null,
+  transFileSeq: number | null,
+): Promise<Record<string, unknown> | null> {
+  if (!transId) return null;
+  try {
+    const rows = await query<{ extracted_fields: Record<string, unknown> | null }>(
+      `SELECT extracted_fields FROM sec_source_files
+       WHERE sec_trans_id = $1
+         AND trans_file_seq IS NOT DISTINCT FROM $2
+       ORDER BY detected_at DESC, id DESC
+       LIMIT 1`,
+      [transId, transFileSeq],
+    );
+    return rows[0]?.extracted_fields ?? null;
+  } catch (err) {
+    console.error("[sec-source-files] Failed to read latest staged fields:", err);
     return null;
   }
 }
@@ -229,6 +272,61 @@ export async function getIpoFinancials(
   }
 }
 
+/**
+ * Read the confirmed financial values for many IPOs at once. Used to drop
+ * review-queue files whose extracted numbers already match the database without
+ * issuing one query per file. Never throws — returns whatever it could read.
+ */
+export async function getIpoFinancialsBatch(
+  ipoIds: number[],
+): Promise<Map<number, FsFinancialFields>> {
+  const out = new Map<number, FsFinancialFields>();
+  if (ipoIds.length === 0) return out;
+  try {
+    const rows = await query<Record<string, unknown>>(
+      `SELECT ipo_id, ${IPO_FINANCIAL_COLUMNS.join(", ")}
+         FROM ipo_financials WHERE ipo_id = ANY($1)`,
+      [ipoIds],
+    );
+    for (const row of rows) {
+      const ipoId = Number(row.ipo_id);
+      if (!Number.isInteger(ipoId)) continue;
+      const fields: FsFinancialFields = {};
+      for (const col of IPO_FINANCIAL_COLUMNS) {
+        const num = Number(row[col]);
+        if (row[col] != null && Number.isFinite(num)) fields[col] = num;
+      }
+      out.set(ipoId, fields);
+    }
+  } catch (err) {
+    console.error("[sec-source-files] Failed to batch-read ipo_financials:", err);
+  }
+  return out;
+}
+
+/**
+ * True when every numeric financial value a staged file extracted already equals
+ * the confirmed ipo_financials. Mirrors the pipeline's scrape-time check so rows
+ * staged before the database caught up still drop out of the review queue. A
+ * tiny tolerance absorbs float-representation noise only.
+ */
+function extractedMatchesDbFinancials(
+  extracted: Record<string, unknown> | null,
+  db: FsFinancialFields | null | undefined,
+): boolean {
+  if (!extracted || !db) return false;
+  let compared = 0;
+  for (const col of IPO_FINANCIAL_COLUMNS) {
+    const ev = extracted[col];
+    if (typeof ev !== "number" || !Number.isFinite(ev)) continue;
+    compared++;
+    const dv = db[col];
+    if (typeof dv !== "number" || !Number.isFinite(dv)) return false;
+    if (Math.abs(ev - dv) > Math.max(1e-6, Math.abs(ev) * 1e-6)) return false;
+  }
+  return compared > 0;
+}
+
 export interface GetSecSourceFilesOpts {
   ipoId?: number;
   status?: SecSourceFileStatus;
@@ -256,13 +354,47 @@ export async function getSecSourceFiles(
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const limit = Math.min(Math.max(opts.limit ?? 200, 1), 500);
   params.push(limit);
-  return query<SecSourceFileRow>(
-    `SELECT * FROM sec_source_files
-     ${where}
+
+  // Re-scraping the same SEC document inserts a fresh row each time, so the same
+  // logical file (identified by TransID + file sequence) can appear many times in
+  // the queue. Collapse those duplicates to the most recent row only. Rows with
+  // no TransID fall back to a per-id key so they are never merged together.
+  const dedupKey =
+    "COALESCE(sec_trans_id || ':' || COALESCE(trans_file_seq::text, '0'), 'id:' || id::text)";
+
+  const rows = await query<SecSourceFileRow>(
+    `SELECT * FROM (
+       SELECT DISTINCT ON (${dedupKey}) *
+       FROM sec_source_files
+       ${where}
+       ORDER BY ${dedupKey}, detected_at DESC, id DESC
+     ) deduped
      ORDER BY detected_at DESC
      LIMIT $${params.length}`,
     params,
   );
+
+  // Drop review-queue files whose every extracted financial value already equals
+  // the confirmed ipo_financials — they add nothing to import, so they must not
+  // inflate the "รออนุมัติ" badge or appear in the per-section review card. Only
+  // the needs_review queue is filtered; imported/other statuses pass through.
+  if (opts.status === "needs_review" && rows.length > 0) {
+    const ipoIds = [
+      ...new Set(
+        rows
+          .map((row) => row.ipo_id)
+          .filter((id): id is number => Number.isInteger(id)),
+      ),
+    ];
+    const dbByIpo = await getIpoFinancialsBatch(ipoIds);
+    return rows.filter((row) => {
+      if (row.ipo_id == null) return true;
+      const db = dbByIpo.get(row.ipo_id);
+      return !extractedMatchesDbFinancials(row.extracted_fields, db);
+    });
+  }
+
+  return rows;
 }
 
 export type SecReviewAction = "approved" | "rejected" | "edited";
@@ -376,7 +508,6 @@ export async function reprocessSourceFile(
   const canAutoImport = row.ipo_id !== null && secAutoImportEnabled() && extractionValid;
 
   if (canAutoImport) {
-    importedFields = await importFsFinancials(row.ipo_id!, fields);
     imported = true;
     status = "imported";
   }
@@ -422,7 +553,16 @@ export async function reprocessSourceFile(
     "id = $1",
     [id],
   );
-  await query(text, values);
+
+  // Import the refreshed values and flip the staging row's status atomically:
+  // a partial write would leave ipo_financials updated but the source file not
+  // marked imported (or vice-versa).
+  await withTransaction(async (client) => {
+    if (canAutoImport) {
+      importedFields = await importFsFinancials(row.ipo_id!, fields, client);
+    }
+    await client.query(text, values);
+  });
 
   const updatedRows = await query<SecSourceFileRow>(
     "SELECT * FROM sec_source_files WHERE id = $1",
@@ -490,12 +630,11 @@ export async function reviewSourceFile(
   if (!row.ipo_id) {
     throw new Error(`Source file ${id} has no ipo_id; cannot import`);
   }
+  const ipoId = row.ipo_id;
   const finalFields: FsFinancialFields =
     action === "edited"
       ? opts.fields ?? {}
       : (row.extracted_fields as FsFinancialFields) ?? {};
-
-  const written = await importFsFinancials(row.ipo_id, finalFields);
 
   const { text, values } = buildUpdate(
     "sec_source_files",
@@ -513,7 +652,15 @@ export async function reviewSourceFile(
     "id = $1",
     [id],
   );
-  await query(text, values);
+
+  // Write the financials and mark the source file imported in one transaction —
+  // never leave ipo_financials updated while the staging row still says
+  // needs_review (or the reverse).
+  const written = await withTransaction(async (client) => {
+    const writtenCols = await importFsFinancials(ipoId, finalFields, client);
+    await client.query(text, values);
+    return writtenCols;
+  });
   return { id, review_action: action, imported: true, imported_fields: written };
 }
 

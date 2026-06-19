@@ -1,5 +1,12 @@
-import type { LeadCoSummaryRow, SummaryRow } from "./types";
-import data from "../data/ipo.json";
+// Type definitions for the ipo.json data graph.
+//
+// The data itself is NO LONGER imported here — it used to be a static
+// `import data from "../data/ipo.json"` that inlined the full ~3.7MB artifact
+// into every client bundle. The values are now fetched lazily per slice via
+// src/app/lib/ipoDataClient.ts (served by /api/ipo-data/*). This module keeps
+// only the shared type definitions consumed across the analytics UI.
+
+import type { SummaryRow } from "./types";
 
 export type CompanyRow = {
   symbol: string;
@@ -129,58 +136,3 @@ export type SectorMapping = Record<
   string, // keyword (lowercase substring match)
   { name: string; type: "sector" | "industry" }
 >;
-
-export const faPersonsSummary: SummaryRow[] = data.faPersons as SummaryRow[];
-export const faCompaniesSummary: SummaryRow[] = data.faCompanies as SummaryRow[];
-export const leadUnderwritersSummary: SummaryRow[] =
-  data.leadUnderwriters as SummaryRow[];
-export const leadCoSummary: LeadCoSummaryRow[] = data.leadCo as LeadCoSummaryRow[];
-export const companies: CompanyRow[] = data.companies as CompanyRow[];
-export const ipoDetails: IpoDetailRow[] = data.ipoDetails as IpoDetailRow[];
-export const ipoDetailsBySymbol: Map<string, IpoDetailRow> = new Map(
-  ipoDetails.map((r) => [r.symbol, r]),
-);
-export const rawIpo: RawIpoRow[] = data.rawIpo as RawIpoRow[];
-export const leadCoIndex: LeadCoIndexEntry[] = data.leadCoIndex as LeadCoIndexEntry[];
-export const globalBaseline = data.globalBase as GlobalBaseline;
-
-export const fundamentalsBySymbol = data.fundamentalsBySymbol as Record<
-  string,
-  IpoFundamental
->;
-export const globalFundamentalStats =
-  data.globalFundamentalStats as GlobalFundamentalStats;
-// roe/ey/de/cost quantiles can be null in ipo.json when there isn't enough
-// data to compute them, so go through `unknown` (TierThresholds keeps them as
-// number for the consuming tier logic, which already treats a missing bin as 0).
-export const tierThresholds = data.tierThresholds as unknown as TierThresholds;
-export const peerBySector = data.peerBySector as Record<string, PeerGroupStats>;
-export const peerByIndustry = data.peerByIndustry as Record<string, PeerGroupStats>;
-export const sectorParent = data.sectorParent as Record<string, string>;
-export const sectorMapping = data.sectorMapping as SectorMapping;
-export const knownSectors = data.knownSectors as string[];
-export const knownIndustries = data.knownIndustries as string[];
-
-// Autocomplete options extracted directly from Database - base.csv (per user spec).
-export const faPersonOptions = data.faPersonOptions as string[];
-export const faCompanyOptions = data.faCompanyOptions as string[];
-export const leadUnderwriterOptions = data.leadUnderwriterOptions as string[];
-export const coUnderwriterOptions = data.coUnderwriterOptions as string[];
-
-export const rawIpoBySymbol: Map<string, RawIpoRow> = new Map(
-  rawIpo.map((r) => [r.sym, r]),
-);
-
-export const dataCounts = data.counts as {
-  base: number;
-  financials: number;
-  dfFinal: number;
-  faPersons: number;
-  faCompanies: number;
-  leadUnderwriters: number;
-  leadCoPairs: number;
-  companies: number;
-  rawIpo: number;
-  leadCoIndex: number;
-  fundamentals: number;
-};

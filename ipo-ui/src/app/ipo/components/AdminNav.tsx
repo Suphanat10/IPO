@@ -17,6 +17,7 @@ import DashboardRoundedIcon from "@mui/icons-material/DashboardRounded";
 import CloudDownloadRoundedIcon from "@mui/icons-material/CloudDownloadRounded";
 import EventAvailableRoundedIcon from "@mui/icons-material/EventAvailableRounded";
 import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
+import InsightsRoundedIcon from "@mui/icons-material/InsightsRounded";
 import KeyboardArrowRightRoundedIcon from "@mui/icons-material/KeyboardArrowRightRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import TableChartRoundedIcon from "@mui/icons-material/TableChartRounded";
@@ -36,6 +37,7 @@ const NAV: NavItem[] = [
   { href: "/ipo/dashboard", label: "Dashboard", description: "System health", icon: DashboardRoundedIcon },
   { href: "/ipo/ipos", label: "IPO Explorer", description: "Search and edit records", icon: TableChartRoundedIcon },
   { href: "/ipo/upcoming", label: "IPO กำลังจะเข้า", description: "ความพร้อมก่อนเข้าตลาด", icon: EventAvailableRoundedIcon },
+  { href: "/ipo/predictions", label: "ประวัติคำแนะนำ", description: "ความแม่นยำและผลตอบแทน", icon: InsightsRoundedIcon },
   { href: "/ipo/upcoming/scrape", label: "Scraper / ดึงข้อมูล IPO", description: "SET + SEC, diff history", icon: CloudDownloadRoundedIcon },
   { href: "/ipo/validation", label: "ตรวจคุณภาพ / Validation", description: "คิวตรวจคุณภาพข้อมูล / Data quality queue", icon: FactCheckRoundedIcon },
   { href: "/ipo/import", label: "Import CSV", description: "Preview and commit", icon: UploadFileRoundedIcon },
@@ -52,7 +54,7 @@ function isActive(pathname: string, href: string) {
 }
 
 function getNavGroups() {
-  const overviewHrefs = new Set(["/ipo/dashboard", "/ipo/ipos", "/ipo/upcoming", "/ipo/upcoming/scrape"]);
+  const overviewHrefs = new Set(["/ipo/dashboard", "/ipo/ipos", "/ipo/upcoming", "/ipo/predictions", "/ipo/upcoming/scrape"]);
   return [
     { label: "Overview", items: NAV.filter((i) => overviewHrefs.has(i.href)) },
     { label: "Operations", items: NAV.filter((i) => !overviewHrefs.has(i.href)) },
